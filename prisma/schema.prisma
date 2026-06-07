@@ -49,6 +49,7 @@ model Guard {
   // Medical clearance
   medicalClearanceDate DateTime?
   medicalExpiryDate    DateTime?
+  medicalDocumentUrl   String?
 
   notes String?
 

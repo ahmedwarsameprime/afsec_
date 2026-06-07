@@ -36,30 +36,46 @@ export default async function EditGuardPage({ params }: { params: Params }) {
   async function save(formData: FormData) {
     "use server";
 
-    const photo = formData.get("photo") as File | null;
-    let photoUrl: string | undefined;
-    if (photo && photo.size > 0 && photo.size < 5_000_000) {
-      const ext = (photo.name.split(".").pop() ?? "jpg").toLowerCase();
-      const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "jpg";
+    async function saveUpload(
+      file: File | null,
+      kind: "photo" | "medical",
+      allowed: string[]
+    ): Promise<string | undefined> {
+      if (!file || file.size === 0 || file.size > 10_000_000) return undefined;
+      const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+      if (!allowed.includes(ext)) return undefined;
       const dir = path.join(process.cwd(), "public", "uploads");
       await mkdir(dir, { recursive: true });
-      const fname = `${id}-${Date.now()}.${safeExt}`;
-      const buf = Buffer.from(await photo.arrayBuffer());
+      const fname = `${id}-${kind}-${Date.now()}.${ext}`;
+      const buf = Buffer.from(await file.arrayBuffer());
       await writeFile(path.join(dir, fname), buf);
-      photoUrl = `/uploads/${fname}`;
+      return `/uploads/${fname}`;
+    }
 
-      // Clean up previous photo if it lives in /uploads/
+    async function cleanupOld(url: string | null) {
+      if (!url?.startsWith("/uploads/")) return;
+      try {
+        await unlink(path.join(process.cwd(), "public", url));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const photo = formData.get("photo") as File | null;
+    const medical = formData.get("medicalDocument") as File | null;
+
+    const photoUrl = await saveUpload(photo, "photo", ["jpg", "jpeg", "png", "webp"]);
+    const medicalDocumentUrl = await saveUpload(medical, "medical", [
+      "jpg", "jpeg", "png", "webp", "pdf",
+    ]);
+
+    if (photoUrl || medicalDocumentUrl) {
       const existing = await prisma.guard.findUnique({
         where: { id },
-        select: { photoUrl: true },
+        select: { photoUrl: true, medicalDocumentUrl: true },
       });
-      if (existing?.photoUrl?.startsWith("/uploads/")) {
-        try {
-          await unlink(path.join(process.cwd(), "public", existing.photoUrl));
-        } catch {
-          /* ignore */
-        }
-      }
+      if (photoUrl) await cleanupOld(existing?.photoUrl ?? null);
+      if (medicalDocumentUrl) await cleanupOld(existing?.medicalDocumentUrl ?? null);
     }
 
     await prisma.guard.update({
@@ -89,6 +105,7 @@ export default async function EditGuardPage({ params }: { params: Params }) {
 
         medicalClearanceDate: toDate(formData.get("medicalClearanceDate")),
         medicalExpiryDate: toDate(formData.get("medicalExpiryDate")),
+        ...(medicalDocumentUrl ? { medicalDocumentUrl } : {}),
 
         notes: toOptStr(formData.get("notes")),
       },
@@ -103,13 +120,15 @@ export default async function EditGuardPage({ params }: { params: Params }) {
     "use server";
     const g = await prisma.guard.findUnique({
       where: { id },
-      select: { photoUrl: true },
+      select: { photoUrl: true, medicalDocumentUrl: true },
     });
-    if (g?.photoUrl?.startsWith("/uploads/")) {
-      try {
-        await unlink(path.join(process.cwd(), "public", g.photoUrl));
-      } catch {
-        /* ignore */
+    for (const url of [g?.photoUrl, g?.medicalDocumentUrl]) {
+      if (url?.startsWith("/uploads/")) {
+        try {
+          await unlink(path.join(process.cwd(), "public", url));
+        } catch {
+          /* ignore */
+        }
       }
     }
     await prisma.guard.delete({ where: { id } });
@@ -149,7 +168,7 @@ export default async function EditGuardPage({ params }: { params: Params }) {
         </div>
       </div>
 
-      <form action={save} className="space-y-6" encType="multipart/form-data">
+      <form action={save} className="space-y-6">
         {/* Identity */}
         <Section title="Identity">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -300,6 +319,32 @@ export default async function EditGuardPage({ params }: { params: Params }) {
                 defaultValue={dateInputValue(guard.medicalExpiryDate)}
               />
             </Field>
+            <div className="sm:col-span-2">
+              <Field label="Medical Document (PDF or image)">
+                <div className="flex items-center gap-3 flex-wrap">
+                  {guard.medicalDocumentUrl && (
+                    <a
+                      href={guard.medicalDocumentUrl}
+                      target="_blank"
+                      rel="noopener"
+                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-sm hover:bg-[#c9a56a]/20"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      Current document
+                    </a>
+                  )}
+                  <input
+                    type="file"
+                    name="medicalDocument"
+                    accept="image/*,application/pdf"
+                    className="text-sm text-zinc-400 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-[#c9a56a] file:text-black file:font-medium file:cursor-pointer hover:file:bg-[#e0c490]"
+                  />
+                </div>
+                <div className="text-xs text-zinc-500 mt-1">
+                  Replaces the existing document. Max 10 MB.
+                </div>
+              </Field>
+            </div>
           </div>
         </Section>
 

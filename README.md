@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SOC-AFSEC
 
-## Getting Started
+Coming-soon landing page + internal CRM for SOC-AFSEC Industries (Mogadishu, Somalia).
 
-First, run the development server:
+## What it does
+
+- **`/`** — Public coming-soon landing page with branding, services, and contact info.
+- **`/admin`** — Internal CRM (login required) for managing guard profiles.
+- **`/admin/{id}/id-card`** — Generates a printable ID card with a QR code.
+- **`/p/{slug}`** — Public profile shown when the QR code is scanned. No login required.
+
+## Tech
+
+Next.js 16 (App Router) · TypeScript · Tailwind v4 · Prisma 6 · SQLite (dev) · NextAuth v5.
+
+## Run locally
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run db:push     # create the SQLite database
+npm run db:seed     # create the admin user
+npm run dev         # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Default admin login
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Email: `admin@soc-afsec.com`
+- Password: `ChangeMe123!`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+**Change this immediately** after first login. Set `SEED_ADMIN_EMAIL` and
+`SEED_ADMIN_PASSWORD` in `.env` before re-running `npm run db:seed` to use
+different credentials.
 
-## Learn More
+## Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+See `.env`. For production set:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `DATABASE_URL` — connection string (e.g. Postgres on Vercel)
+- `AUTH_SECRET` — random 32+ char string (`openssl rand -base64 32`)
+- `NEXT_PUBLIC_BASE_URL` — public origin used in QR code URLs (e.g. `https://soc-afsec.com`)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deploy to Vercel
 
-## Deploy on Vercel
+1. Push this repo to GitHub.
+2. Import in Vercel — framework is auto-detected.
+3. Add the env vars above. For `DATABASE_URL`, attach a Vercel Postgres add-on
+   and change `provider = "sqlite"` to `provider = "postgresql"` in
+   `prisma/schema.prisma`.
+4. Photos currently save to `/public/uploads/`. For Vercel, swap to Vercel Blob
+   storage — the upload code lives in `src/app/admin/[id]/page.tsx`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Data model
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+A `Guard` has identity (name, job title, photo, employee ID), two weapon permits
+(hand guns + rifles), a visa permit, medical clearance dates, and an array of
+`Training` records. Each guard gets a unique opaque `slug` used in the QR code.
+
+## QR codes
+
+QR codes encode `${NEXT_PUBLIC_BASE_URL}/p/{slug}`. Slugs are 14 chars of
+URL-safe base64 (~112 bits of entropy) — not enumerable.

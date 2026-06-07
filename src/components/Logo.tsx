@@ -1,78 +1,61 @@
+import Image from "next/image";
 import { CSSProperties } from "react";
 
 type Props = {
-  size?: number;
+  size?: number; // height in px
   variant?: "light" | "dark";
   style?: CSSProperties;
-  showWordmark?: boolean;
+  className?: string;
 };
 
-// SOC-AFSEC inline SVG logo (rebuilt from the supplied letterhead).
-// `size` controls the height in pixels. The logo scales width-wise.
-export function Logo({ size = 48, variant = "light", showWordmark = true, style }: Props) {
-  const stroke = variant === "light" ? "#fff" : "#0a0a0a";
-  const subText = variant === "light" ? "#f5f5f5" : "#0a0a0a";
+// SOC ▍ AFSEC combined wordmark.
+// Two separate artworks composited side-by-side with a thin gold divider.
+//
+// variant="light" (default) → for dark backgrounds (website, CRM, login).
+//                              Uses the white AFSEC variant.
+// variant="dark"            → for light backgrounds (printed ID cards).
+//                              Uses the black AFSEC variant.
+//
+// The SOC logo already has its own dark rectangle so it works on both.
+const SOC_RATIO = 406 / 105;     // ~3.87
+const AFSEC_RATIO = 1118 / 240;  // ~4.66
+
+export function Logo({ size = 48, variant = "light", style, className }: Props) {
+  const afsecSrc =
+    variant === "light" ? "/afsec-logo-white.png" : "/afsec-logo-black.png";
+
+  const dividerColor = variant === "light" ? "#c9a56a" : "#8b6b32";
+
   return (
-    <div className="flex items-center gap-3" style={style}>
-      <svg
-        width={size * 2.4}
+    <div
+      className={`flex items-center gap-3 ${className ?? ""}`}
+      style={style}
+      aria-label="SOC AFSEC Industries"
+    >
+      <Image
+        src="/soc-logo.png"
+        alt="SOC"
+        width={Math.round(size * SOC_RATIO)}
         height={size}
-        viewBox="0 0 240 100"
-        aria-label="SOC AFSEC logo"
-      >
-        {/* Gold slash */}
-        <path
-          d="M5 75 L30 15 L48 15 L23 75 Z"
-          fill="#c9a56a"
-        />
-        <path
-          d="M10 80 L18 60 L34 60 L26 80 Z"
-          fill="#8b7355"
-        />
-        {/* SOC wordmark in a black rounded block */}
-        <rect x="55" y="10" width="180" height="55" rx="8" fill={variant === "light" ? "#0a0a0a" : "#0a0a0a"} />
-        <text
-          x="145"
-          y="50"
-          textAnchor="middle"
-          fontFamily="'Geist', 'Segoe UI', sans-serif"
-          fontWeight="900"
-          fontSize="36"
-          letterSpacing="2"
-          fill="#fff"
-        >
-          SOC
-        </text>
-        {/* AFSEC */}
-        {showWordmark && (
-          <>
-            <text
-              x="135"
-              y="92"
-              textAnchor="middle"
-              fontFamily="'Geist', 'Segoe UI', sans-serif"
-              fontWeight="800"
-              fontSize="22"
-              letterSpacing="3"
-              fill={stroke}
-            >
-              AFSEC
-            </text>
-            <text
-              x="135"
-              y="100"
-              textAnchor="middle"
-              fontFamily="'Geist', 'Segoe UI', sans-serif"
-              fontWeight="600"
-              fontSize="6"
-              letterSpacing="2"
-              fill={subText}
-            >
-              INDUSTRIES
-            </text>
-          </>
-        )}
-      </svg>
+        priority
+      />
+      <span
+        aria-hidden
+        className="inline-block rounded-full"
+        style={{
+          width: 2,
+          height: Math.round(size * 0.7),
+          backgroundColor: dividerColor,
+          opacity: 0.85,
+        }}
+      />
+      <Image
+        src={afsecSrc}
+        alt="AFSEC Industries"
+        width={Math.round(size * AFSEC_RATIO * 0.78)}
+        height={Math.round(size * 0.78)}
+        priority
+      />
     </div>
   );
 }
