@@ -1,0 +1,72 @@
+// SOC-AFSEC CRM data model
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+}
+
+model Guard {
+  id         String  @id @default(cuid())
+  slug       String  @unique
+  employeeId String? @unique
+
+  firstName String
+  lastName  String
+  jobTitle  String
+  photoUrl  String?
+
+  status String @default("active") // active | inactive
+
+  // Permit 1 — Hand guns
+  permit1Active     Boolean   @default(false)
+  permit1Number     String?
+  permit1IssueDate  DateTime?
+  permit1ExpiryDate DateTime?
+
+  // Permit 2 — Rifles
+  permit2Active     Boolean   @default(false)
+  permit2Number     String?
+  permit2IssueDate  DateTime?
+  permit2ExpiryDate DateTime?
+
+  // Visa permit
+  visaStatus     String    @default("inactive") // active | inactive
+  visaNumber     String?
+  visaIssueDate  DateTime?
+  visaExpiryDate DateTime?
+
+  // Medical clearance
+  medicalClearanceDate DateTime?
+  medicalExpiryDate    DateTime?
+
+  notes String?
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  trainings Training[]
+}
+
+model Training {
+  id      String @id @default(cuid())
+  guardId String
+  guard   Guard  @relation(fields: [guardId], references: [id], onDelete: Cascade)
+
+  name       String
+  issuer     String?
+  issueDate  DateTime?
+  expiryDate DateTime?
+  active     Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+}
