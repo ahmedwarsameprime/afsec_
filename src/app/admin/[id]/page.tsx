@@ -2,8 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { dateInputValue } from "@/lib/dates";
-import { writeFile, mkdir, unlink } from "fs/promises";
-import path from "path";
+import { saveUpload, deleteUpload } from "@/lib/storage";
 import { revalidatePath } from "next/cache";
 import { TrainingEditor } from "./TrainingEditor";
 
@@ -36,46 +35,25 @@ export default async function EditGuardPage({ params }: { params: Params }) {
   async function save(formData: FormData) {
     "use server";
 
-    async function saveUpload(
-      file: File | null,
-      kind: "photo" | "medical",
-      allowed: string[]
-    ): Promise<string | undefined> {
-      if (!file || file.size === 0 || file.size > 10_000_000) return undefined;
-      const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-      if (!allowed.includes(ext)) return undefined;
-      const dir = path.join(process.cwd(), "public", "uploads");
-      await mkdir(dir, { recursive: true });
-      const fname = `${id}-${kind}-${Date.now()}.${ext}`;
-      const buf = Buffer.from(await file.arrayBuffer());
-      await writeFile(path.join(dir, fname), buf);
-      return `/uploads/${fname}`;
-    }
-
-    async function cleanupOld(url: string | null) {
-      if (!url?.startsWith("/uploads/")) return;
-      try {
-        await unlink(path.join(process.cwd(), "public", url));
-      } catch {
-        /* ignore */
-      }
-    }
-
     const photo = formData.get("photo") as File | null;
     const medical = formData.get("medicalDocument") as File | null;
 
-    const photoUrl = await saveUpload(photo, "photo", ["jpg", "jpeg", "png", "webp"]);
-    const medicalDocumentUrl = await saveUpload(medical, "medical", [
-      "jpg", "jpeg", "png", "webp", "pdf",
-    ]);
+    const photoUrl = photo
+      ? await saveUpload(photo, `${id}-photo`, ["jpg", "jpeg", "png", "webp"])
+      : undefined;
+    const medicalDocumentUrl = medical
+      ? await saveUpload(medical, `${id}-medical`, [
+          "jpg", "jpeg", "png", "webp", "pdf",
+        ])
+      : undefined;
 
     if (photoUrl || medicalDocumentUrl) {
       const existing = await prisma.guard.findUnique({
         where: { id },
         select: { photoUrl: true, medicalDocumentUrl: true },
       });
-      if (photoUrl) await cleanupOld(existing?.photoUrl ?? null);
-      if (medicalDocumentUrl) await cleanupOld(existing?.medicalDocumentUrl ?? null);
+      if (photoUrl) await deleteUpload(existing?.photoUrl);
+      if (medicalDocumentUrl) await deleteUpload(existing?.medicalDocumentUrl);
     }
 
     await prisma.guard.update({
@@ -122,15 +100,8 @@ export default async function EditGuardPage({ params }: { params: Params }) {
       where: { id },
       select: { photoUrl: true, medicalDocumentUrl: true },
     });
-    for (const url of [g?.photoUrl, g?.medicalDocumentUrl]) {
-      if (url?.startsWith("/uploads/")) {
-        try {
-          await unlink(path.join(process.cwd(), "public", url));
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    await deleteUpload(g?.photoUrl);
+    await deleteUpload(g?.medicalDocumentUrl);
     await prisma.guard.delete({ where: { id } });
     redirect("/admin");
   }
