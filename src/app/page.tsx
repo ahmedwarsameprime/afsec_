@@ -23,8 +23,8 @@ export default function Home() {
       />
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        <header className="px-6 sm:px-12 py-6 flex items-center justify-between">
-          <Logo size={42} />
+        <header className="px-4 sm:px-12 py-5 sm:py-6 flex items-center justify-between gap-3">
+          <Logo size={36} />
           <a
             href="mailto:info@soc-afsec.com"
             className="hidden sm:inline-flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-md border border-[#c9a56a]/30 text-[#c9a56a] hover:bg-[#c9a56a]/10 transition"
@@ -33,16 +33,16 @@ export default function Home() {
           </a>
         </header>
 
-        <section className="flex-1 flex items-center justify-center px-6 sm:px-12">
+        <section className="flex-1 flex items-center justify-center px-4 sm:px-12 py-8">
           <div className="max-w-4xl text-center">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#c9a56a]/30 bg-[#c9a56a]/5 mb-8">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-[#c9a56a]/30 bg-[#c9a56a]/5 mb-6 sm:mb-8">
               <span className="w-2 h-2 rounded-full bg-[#c9a56a] animate-pulse" />
-              <span className="text-xs font-medium uppercase tracking-wider text-[#c9a56a]">
+              <span className="text-[10px] sm:text-xs font-medium uppercase tracking-wider text-[#c9a56a]">
                 Coming Soon
               </span>
             </div>
 
-            <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight leading-[1.05]">
+            <h1 className="text-3xl sm:text-6xl lg:text-7xl font-black tracking-tight leading-[1.05]">
               Integrated
               <br />
               <span className="text-[#c9a56a]">Security Solutions</span>
@@ -50,13 +50,13 @@ export default function Home() {
               for a Safer Tomorrow.
             </h1>
 
-            <p className="mt-8 text-lg sm:text-xl text-zinc-400 max-w-2xl mx-auto leading-relaxed">
+            <p className="mt-6 sm:mt-8 text-base sm:text-xl text-zinc-400 max-w-2xl mx-auto leading-relaxed">
               SOC-AFSEC Industries protects personnel, property and facilities
               across Somalia and the Horn of Africa. Our digital experience is
               launching shortly.
             </p>
 
-            <div className="mt-10 flex flex-wrap justify-center gap-2">
+            <div className="mt-8 sm:mt-10 flex flex-wrap justify-center gap-2">
               {[
                 "Personal Protection",
                 "Critical Infrastructure",
@@ -74,7 +74,7 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="mt-12 flex flex-col sm:flex-row gap-4 justify-center">
+            <div className="mt-10 sm:mt-12 flex flex-col sm:flex-row gap-3 justify-center">
               <a
                 href="mailto:info@soc-afsec.com"
                 className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-md bg-[#c9a56a] text-black font-semibold hover:bg-[#e0c490] transition"
@@ -92,7 +92,7 @@ export default function Home() {
         </section>
 
         <footer className="border-t border-white/10 bg-black/40 backdrop-blur">
-          <div className="px-6 sm:px-12 py-8 grid grid-cols-1 sm:grid-cols-3 gap-6 text-sm">
+          <div className="px-4 sm:px-12 py-6 sm:py-8 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 text-sm">
             <div className="flex items-start gap-3">
               <div className="w-8 h-8 rounded-full bg-[#c9a56a]/10 flex items-center justify-center text-[#c9a56a]">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
@@ -125,7 +125,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-          <div className="px-6 sm:px-12 py-4 border-t border-white/5 text-xs text-zinc-500 flex flex-col sm:flex-row justify-between gap-2">
+          <div className="px-4 sm:px-12 py-4 border-t border-white/5 text-xs text-zinc-500 flex flex-col sm:flex-row justify-between gap-2">
             <div>© {new Date().getFullYear()} SOC-AFSEC Industries. All rights reserved.</div>
             <div>www.soc-afsec.com</div>
           </div>

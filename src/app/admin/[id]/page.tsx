@@ -109,7 +109,7 @@ export default async function EditGuardPage({ params }: { params: Params }) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="space-y-4">
         <div>
           <Link
             href="/admin"
@@ -122,19 +122,19 @@ export default async function EditGuardPage({ params }: { params: Params }) {
           </h1>
           <div className="text-sm text-zinc-400">{guard.jobTitle}</div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
           <Link
             href={`/admin/${guard.id}/id-card`}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-[#c9a56a]/40 text-[#c9a56a] hover:bg-[#c9a56a]/10 transition text-sm font-medium"
+            className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-md border border-[#c9a56a]/40 text-[#c9a56a] hover:bg-[#c9a56a]/10 transition text-sm font-medium"
           >
-            View ID Card / QR
+            ID Card / QR
           </Link>
           <Link
             href={`/p/${guard.slug}`}
             target="_blank"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-white/20 text-white hover:bg-white/5 transition text-sm font-medium"
+            className="inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 rounded-md border border-white/20 text-white hover:bg-white/5 transition text-sm font-medium"
           >
-            View Public Profile ↗
+            Public Profile ↗
           </Link>
         </div>
       </div>
@@ -329,10 +329,10 @@ export default async function EditGuardPage({ params }: { params: Params }) {
           />
         </Section>
 
-        <div className="flex items-center justify-between gap-4 sticky bottom-4 z-20">
+        <div className="sticky bottom-2 sm:bottom-4 z-20">
           <button
             type="submit"
-            className="bg-[#c9a56a] text-black font-semibold px-6 py-2.5 rounded-md hover:bg-[#e0c490] transition shadow-lg"
+            className="w-full sm:w-auto bg-[#c9a56a] text-black font-semibold px-6 py-3 rounded-md hover:bg-[#e0c490] transition shadow-2xl"
           >
             Save Changes
           </button>

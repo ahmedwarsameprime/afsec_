@@ -45,19 +45,19 @@ export default async function IdCardPage({ params }: { params: Params }) {
       </div>
 
       {/* Action bar */}
-      <div className="no-print flex flex-wrap gap-2">
+      <div className="no-print grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
         <PrintButton />
         <a
           href={qrDataUrl}
           download={`SOC-AFSEC-QR-${guard.firstName}-${guard.lastName}.png`}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-white/20 text-white hover:bg-white/5 text-sm font-medium"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-white/20 text-white hover:bg-white/5 text-sm font-medium"
         >
           Download QR (PNG)
         </a>
         <Link
           href={`/p/${guard.slug}`}
           target="_blank"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md border border-[#c9a56a]/40 text-[#c9a56a] hover:bg-[#c9a56a]/10 text-sm font-medium"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md border border-[#c9a56a]/40 text-[#c9a56a] hover:bg-[#c9a56a]/10 text-sm font-medium"
         >
           Open public profile ↗
         </Link>
@@ -68,9 +68,9 @@ export default async function IdCardPage({ params }: { params: Params }) {
       </div>
 
       {/* ID card */}
-      <div className="flex justify-center">
+      <div className="flex justify-center px-2">
         <div
-          className="print-card relative w-[340px] h-[540px] rounded-2xl overflow-hidden shadow-2xl bg-white text-black border border-zinc-300"
+          className="print-card relative w-full max-w-[340px] aspect-[340/540] rounded-2xl overflow-hidden shadow-2xl bg-white text-black border border-zinc-300"
           id="id-card"
         >
           {/* Top band */}
