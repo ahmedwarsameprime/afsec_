@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { auth, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { Logo } from "@/components/Logo";
+import { QRScanner } from "./QRScanner";
 
 export const dynamic = "force-dynamic";
 
@@ -74,15 +74,12 @@ export default async function ScanLandingPage() {
           )}
         </div>
 
-        <div className="bg-gradient-to-br from-[#c9a56a]/10 to-[#141414] border-2 border-[#c9a56a]/30 rounded-2xl p-6 text-center">
-          <div className="text-5xl mb-3">📷</div>
-          <h2 className="text-lg font-bold mb-1">Scan a Guard's QR Code</h2>
-          <p className="text-sm text-zinc-400">
-            Point your phone camera at a SOC-AFSEC ID card to open the guard's
-            profile.{" "}
+        <div>
+          <QRScanner />
+          <p className="text-xs text-zinc-500 mt-3 text-center">
             {locType === "armory"
               ? "You'll be prompted to confirm the weapon serial before issuance is recorded."
-              : "Your scan is logged automatically."}
+              : "Your scan is logged automatically at your location."}
           </p>
         </div>
 
@@ -130,7 +127,7 @@ export default async function ScanLandingPage() {
         </section>
 
         <div className="text-center text-xs text-zinc-600">
-          To scan, open your phone camera and point it at an ID card.
+          Tip: prefer Chrome or Safari for the smoothest camera support.
         </div>
       </div>
     </main>
