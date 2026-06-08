@@ -3,6 +3,14 @@
 import { useState, useTransition } from "react";
 import { logArmoryIssuance } from "./armory-actions";
 
+type ResultKind = "approved" | "mismatch" | "no-serial" | "missing-input" | "error";
+
+type Result = {
+  kind: ResultKind;
+  title: string;
+  detail: string;
+};
+
 type Permit = {
   key: "permit1" | "permit2";
   label: string;
@@ -27,10 +35,7 @@ export function ArmoryIssuance({
   const [selectedKey, setSelectedKey] = useState<string>(permits[0]?.key ?? "");
   const [serial, setSerial] = useState("");
   const [busy, startTransition] = useTransition();
-  const [result, setResult] = useState<{
-    type: "success" | "error";
-    msg: string;
-  } | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
 
   const selected = permits.find((p) => p.key === selectedKey);
   const expected = selected?.weaponNumber ?? "";
@@ -40,26 +45,36 @@ export function ArmoryIssuance({
     setResult(null);
 
     if (!selected) {
-      setResult({ type: "error", msg: "Select a permit to issue against." });
+      setResult({
+        kind: "missing-input",
+        title: "Cannot proceed",
+        detail: "Select which permit you're issuing against first.",
+      });
       return;
     }
     const entered = serial.trim();
     if (!entered) {
-      setResult({ type: "error", msg: "Enter the weapon serial number." });
+      setResult({
+        kind: "missing-input",
+        title: "Serial required",
+        detail:
+          "Enter the weapon serial number stamped on the firearm before submitting.",
+      });
       return;
     }
-    // Match must be exact (case-insensitive) against the weapon number on file.
     if (!expected) {
       setResult({
-        type: "error",
-        msg: `No weapon serial is on file for ${selected.label}. Have admin add it before issuing.`,
+        kind: "no-serial",
+        title: "Cannot verify — no serial on file",
+        detail: `${selected.label} has no weapon serial recorded. An admin must add it on the guard's permit before any weapon can be issued under it.`,
       });
       return;
     }
     if (entered.toLowerCase() !== expected.toLowerCase()) {
       setResult({
-        type: "error",
-        msg: `Serial does not match. Expected: ${expected}`,
+        kind: "mismatch",
+        title: "DENIED — Weapon does not match permit",
+        detail: `The serial you entered (${entered}) does not match the weapon recorded on ${selected.label}. This issuance has NOT been logged. Re-check the firearm and try again, or escalate to a supervisor if the wrong weapon is in stock.`,
       });
       return;
     }
@@ -73,14 +88,17 @@ export function ArmoryIssuance({
       });
       if (ok) {
         setResult({
-          type: "success",
-          msg: `${selected.label.split(" — ")[1] ?? "Weapon"} issued to ${guardName} (serial ${entered}). Logged.`,
+          kind: "approved",
+          title: "APPROVED — Issuance logged",
+          detail: `Weapon ${entered} issued to ${guardName} under ${selected.label}. Recorded against this armory.`,
         });
         setSerial("");
       } else {
         setResult({
-          type: "error",
-          msg: "Could not record issuance. Please try again.",
+          kind: "error",
+          title: "Could not save",
+          detail:
+            "The issuance wasn't recorded due to a server error. Try again, and if it keeps failing, contact admin before handing over the weapon.",
         });
       }
     });
@@ -163,18 +181,7 @@ export function ArmoryIssuance({
           </div>
         </div>
 
-        {result && (
-          <div
-            className={`rounded-md px-3 py-2 text-sm ${
-              result.type === "success"
-                ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
-                : "bg-red-500/10 border border-red-500/30 text-red-300"
-            }`}
-          >
-            {result.type === "success" ? "✓ " : "✗ "}
-            {result.msg}
-          </div>
-        )}
+        {result && <ResultBanner result={result} />}
 
         <button
           type="submit"
@@ -185,5 +192,60 @@ export function ArmoryIssuance({
         </button>
       </form>
     </section>
+  );
+}
+
+function ResultBanner({ result }: { result: Result }) {
+  // Visual treatment per outcome.
+  const styles: Record<
+    ResultKind,
+    { box: string; icon: React.ReactNode; title: string }
+  > = {
+    approved: {
+      box: "bg-emerald-500/10 border-emerald-500/40 text-emerald-200",
+      icon: <span className="text-emerald-300 font-bold">✓</span>,
+      title: "text-emerald-300",
+    },
+    mismatch: {
+      box: "bg-red-500/15 border-red-500/50 text-red-200",
+      icon: (
+        <span aria-hidden className="text-red-300 font-black text-lg leading-none">⛔</span>
+      ),
+      title: "text-red-300",
+    },
+    "no-serial": {
+      box: "bg-amber-500/10 border-amber-500/40 text-amber-200",
+      icon: <span className="text-amber-300 font-bold">!</span>,
+      title: "text-amber-300",
+    },
+    "missing-input": {
+      box: "bg-amber-500/10 border-amber-500/40 text-amber-200",
+      icon: <span className="text-amber-300 font-bold">!</span>,
+      title: "text-amber-300",
+    },
+    error: {
+      box: "bg-red-500/15 border-red-500/40 text-red-200",
+      icon: <span className="text-red-300 font-bold">✗</span>,
+      title: "text-red-300",
+    },
+  };
+  const s = styles[result.kind];
+  return (
+    <div
+      role={result.kind === "approved" ? "status" : "alert"}
+      className={`rounded-md border px-3 py-3 ${s.box}`}
+    >
+      <div className="flex items-start gap-2">
+        <div className="mt-0.5 shrink-0">{s.icon}</div>
+        <div className="min-w-0">
+          <div className={`text-sm font-bold uppercase tracking-wider ${s.title}`}>
+            {result.title}
+          </div>
+          <div className="text-xs mt-1 text-zinc-200/90 leading-relaxed">
+            {result.detail}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
