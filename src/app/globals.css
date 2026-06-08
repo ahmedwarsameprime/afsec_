@@ -53,6 +53,35 @@ body {
   }
 }
 
+/* Date/time pickers — force dark calendar icon styling.
+   `color-scheme: dark` flips the native picker UI for Chromium / WebKit,
+   which renders the calendar/clock indicator in the foreground color. */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"],
+input[type="month"],
+input[type="week"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.9);
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+}
+
+/* File picker button — keep readable in dark theme */
+input[type="file"] {
+  color-scheme: dark;
+}
+
 /* Utility */
 .brand-text {
   color: var(--brand-gold);

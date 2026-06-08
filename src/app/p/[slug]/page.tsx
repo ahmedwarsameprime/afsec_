@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatDate, expiryStatus, isExpired } from "@/lib/dates";
+import { formatDate, isExpired } from "@/lib/dates";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Logo } from "@/components/Logo";
 import { notFound, redirect } from "next/navigation";
@@ -10,6 +10,20 @@ import { ArmoryIssuance } from "./ArmoryIssuance";
 type Params = Promise<{ slug: string }>;
 
 export const dynamic = "force-dynamic";
+
+// "Active" iff there's an expiry in the future. Anything else (no expiry on
+// file, expired, no document) is treated as Inactive on the public profile.
+function isActive(args: {
+  expiry?: Date | null | undefined;
+  documentUrl?: string | null | undefined;
+}): boolean {
+  const { expiry, documentUrl } = args;
+  if (!expiry && !documentUrl) return false;
+  if (expiry && isExpired(expiry)) return false;
+  if (!expiry && !documentUrl) return false;
+  // Has expiry in future, OR has document with no expiry.
+  return true;
+}
 
 export default async function PublicProfile({ params }: { params: Params }) {
   const { slug } = await params;
@@ -23,18 +37,18 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
   if (!guard) notFound();
 
-  // Operators log every scan against their assigned location.
-  // Armory operators get a confirmation workflow before the log is written.
   const role = session.user.role ?? "admin";
   const locationId = session.user.locationId;
   const locationType = session.user.locationType;
   const locationName = session.user.locationName;
 
   let scanLogged = false;
-  let mostRecentArmoryScan: { weaponSerial: string | null; permitContext: string | null } | null = null;
+  let mostRecentArmoryScan: {
+    weaponSerial: string | null;
+    permitContext: string | null;
+  } | null = null;
 
   if (role === "operator" && locationId && locationType === "site") {
-    // For site operators, log the verification scan automatically on view.
     const h = await headers();
     await prisma.scanLog.create({
       data: {
@@ -50,8 +64,6 @@ export default async function PublicProfile({ params }: { params: Params }) {
   }
 
   if (role === "operator" && locationId && locationType === "armory") {
-    // Check whether a recent armory issuance already exists for this guard
-    // (within last 12 hours) — useful context for the operator.
     const recent = await prisma.scanLog.findFirst({
       where: {
         guardId: guard.id,
@@ -71,6 +83,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
   const fullName = `${guard.firstName} ${guard.lastName}`;
 
+  // All permits — always show both; UI marks empty ones as Inactive.
   const permits = [
     {
       key: "permit1" as const,
@@ -96,30 +109,12 @@ export default async function PublicProfile({ params }: { params: Params }) {
       expiryDate: guard.permit2ExpiryDate,
       documentUrl: guard.permit2DocumentUrl,
     },
-  ].filter(
-    (p) =>
-      p.number ||
-      p.weapon ||
-      p.make ||
-      p.model ||
-      p.clips !== null ||
-      p.issueDate ||
-      p.expiryDate ||
-      p.documentUrl
+  ];
+
+  // For the armory selector we still only offer permits that have a weapon to issue.
+  const issuablePermits = permits.filter(
+    (p) => p.weapon || p.make || p.model
   );
-
-  const visaPresent =
-    guard.visaNumber ||
-    guard.visaIssueDate ||
-    guard.visaExpiryDate ||
-    guard.visaDocumentUrl;
-
-  const medicalPresent =
-    guard.medicalClearanceDate ||
-    guard.medicalExpiryDate ||
-    guard.medicalDocumentUrl;
-
-  const trainings = guard.trainings;
 
   return (
     <main className="min-h-screen w-full bg-[#0a0a0a] text-white">
@@ -187,7 +182,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
             guardId={guard.id}
             guardName={fullName}
             locationId={locationId}
-            permits={permits.map((p) => ({
+            permits={issuablePermits.map((p) => ({
               key: p.key,
               label: p.label,
               permitNumber: p.number,
@@ -201,83 +196,89 @@ export default async function PublicProfile({ params }: { params: Params }) {
           />
         )}
 
-        {/* Weapon Permits — only sections with data */}
-        {permits.length > 0 && (
-          <Section title="Weapon Permits">
-            {permits.map(({ key: _k, ...rest }) => (
-              <PermitRow key={rest.label} {...rest} />
-            ))}
-          </Section>
-        )}
+        {/* Weapon Permits — always show both */}
+        <Section title="Weapon Permits">
+          {permits.map(({ key: _k, ...rest }) => (
+            <PermitRow key={rest.label} {...rest} />
+          ))}
+        </Section>
 
         {/* Visa */}
-        {visaPresent && (
-          <Section title="Visa Permit">
-            <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
-              <Field label="Status">
-                <DerivedStatus
-                  documentUrl={guard.visaDocumentUrl}
-                  expiry={guard.visaExpiryDate}
-                />
-              </Field>
-              {guard.visaNumber && (
-                <Field label="Number">
-                  <span className="font-mono text-zinc-200">{guard.visaNumber}</span>
-                </Field>
-              )}
-              {guard.visaIssueDate && (
-                <Field label="Issued">
-                  <span>{formatDate(guard.visaIssueDate)}</span>
-                </Field>
-              )}
-              {guard.visaExpiryDate && (
-                <Field label="Expires">
-                  <DateWithBadge date={guard.visaExpiryDate} />
-                </Field>
-              )}
-              {guard.visaDocumentUrl && (
-                <div className="col-span-2">
-                  <DocLink url={guard.visaDocumentUrl} label="View visa document" />
-                </div>
-              )}
-            </div>
-          </Section>
-        )}
+        <Section title="Visa Permit">
+          <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
+            <Field label="Status">
+              <ActiveBadge
+                expiry={guard.visaExpiryDate}
+                documentUrl={guard.visaDocumentUrl}
+              />
+            </Field>
+            <Field label="Number">
+              <span className="font-mono text-zinc-200">
+                {guard.visaNumber ?? "—"}
+              </span>
+            </Field>
+            <Field label="Issued">
+              <span>{formatDate(guard.visaIssueDate)}</span>
+            </Field>
+            <Field label="Expires">
+              <span
+                className={
+                  guard.visaExpiryDate && isExpired(guard.visaExpiryDate)
+                    ? "text-red-400"
+                    : ""
+                }
+              >
+                {formatDate(guard.visaExpiryDate)}
+              </span>
+            </Field>
+            {guard.visaDocumentUrl && (
+              <div className="col-span-2">
+                <DocLink url={guard.visaDocumentUrl} label="View visa document" />
+              </div>
+            )}
+          </div>
+        </Section>
 
         {/* Medical */}
-        {medicalPresent && (
-          <Section title="Medical Clearance">
-            <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
-              <Field label="Status">
-                <DerivedStatus
-                  documentUrl={guard.medicalDocumentUrl}
-                  expiry={guard.medicalExpiryDate}
-                />
-              </Field>
-              {guard.medicalClearanceDate && (
-                <Field label="Cleared">
-                  <span>{formatDate(guard.medicalClearanceDate)}</span>
-                </Field>
-              )}
-              {guard.medicalExpiryDate && (
-                <Field label="Expires">
-                  <DateWithBadge date={guard.medicalExpiryDate} />
-                </Field>
-              )}
-              {guard.medicalDocumentUrl && (
-                <div className="col-span-2">
-                  <DocLink url={guard.medicalDocumentUrl} label="View medical document" />
-                </div>
-              )}
-            </div>
-          </Section>
-        )}
+        <Section title="Medical Clearance">
+          <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
+            <Field label="Status">
+              <ActiveBadge
+                expiry={guard.medicalExpiryDate}
+                documentUrl={guard.medicalDocumentUrl}
+              />
+            </Field>
+            <Field label="Cleared">
+              <span>{formatDate(guard.medicalClearanceDate)}</span>
+            </Field>
+            <Field label="Expires">
+              <span
+                className={
+                  guard.medicalExpiryDate && isExpired(guard.medicalExpiryDate)
+                    ? "text-red-400"
+                    : ""
+                }
+              >
+                {formatDate(guard.medicalExpiryDate)}
+              </span>
+            </Field>
+            {guard.medicalDocumentUrl && (
+              <div className="col-span-2">
+                <DocLink url={guard.medicalDocumentUrl} label="View medical document" />
+              </div>
+            )}
+          </div>
+        </Section>
 
         {/* Training */}
-        {trainings.length > 0 && (
-          <Section title={`Training History (${trainings.length})`}>
+        <Section title={`Training History (${guard.trainings.length})`}>
+          {guard.trainings.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-zinc-500">
+              No training records on file.
+            </div>
+          ) : (
             <ul className="divide-y divide-white/5">
-              {trainings.map((t) => (
+              {guard.trainings.map((t) => (
                 <li key={t.id} className="px-4 py-3">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
@@ -290,24 +291,28 @@ export default async function PublicProfile({ params }: { params: Params }) {
                         </div>
                       )}
                     </div>
-                    <DerivedStatus
-                      documentUrl={t.documentUrl}
+                    <ActiveBadge
                       expiry={t.expiryDate}
+                      documentUrl={t.documentUrl}
                     />
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-400">
-                    {t.issueDate && (
-                      <div>
-                        <span className="text-zinc-600">Issued:</span>{" "}
-                        {formatDate(t.issueDate)}
-                      </div>
-                    )}
-                    {t.expiryDate && (
-                      <div>
-                        <span className="text-zinc-600">Expires:</span>{" "}
+                    <div>
+                      <span className="text-zinc-600">Issued:</span>{" "}
+                      {formatDate(t.issueDate)}
+                    </div>
+                    <div>
+                      <span className="text-zinc-600">Expires:</span>{" "}
+                      <span
+                        className={
+                          t.expiryDate && isExpired(t.expiryDate)
+                            ? "text-red-400"
+                            : ""
+                        }
+                      >
                         {formatDate(t.expiryDate)}
-                      </div>
-                    )}
+                      </span>
+                    </div>
                   </div>
                   {t.documentUrl && (
                     <div className="mt-2">
@@ -317,8 +322,8 @@ export default async function PublicProfile({ params }: { params: Params }) {
                 </li>
               ))}
             </ul>
-          </Section>
-        )}
+          )}
+        </Section>
 
         <div className="text-center text-xs text-zinc-600 pt-4 pb-8">
           <div>
@@ -354,12 +359,15 @@ function PermitRow({
   expiryDate: Date | null;
   documentUrl: string | null;
 }) {
+  const hasAny =
+    number || weapon || make || model || clips !== null || issueDate || expiryDate || documentUrl;
   const hasWeapon = make || model || weapon || clips !== null;
+
   return (
     <div className="px-4 py-3 border-b border-white/5 last:border-0">
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="font-medium text-zinc-100">{label}</div>
-        <DerivedStatus documentUrl={documentUrl} expiry={expiryDate} />
+        <ActiveBadge expiry={expiryDate} documentUrl={documentUrl ?? (hasAny ? "" : null)} />
       </div>
 
       {hasWeapon && (
@@ -388,22 +396,23 @@ function PermitRow({
       )}
 
       <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-xs text-zinc-400">
-        {number && (
-          <div>
-            <span className="text-zinc-600">Permit No.</span>{" "}
-            <span className="font-mono text-zinc-200">{number}</span>
-          </div>
-        )}
-        {issueDate && (
-          <div>
-            <span className="text-zinc-600">Issued:</span> {formatDate(issueDate)}
-          </div>
-        )}
-        {expiryDate && (
-          <div>
-            <span className="text-zinc-600">Expires:</span> {formatDate(expiryDate)}
-          </div>
-        )}
+        <div>
+          <span className="text-zinc-600">Permit No.</span>{" "}
+          <span className="font-mono text-zinc-200">{number ?? "—"}</span>
+        </div>
+        <div>
+          <span className="text-zinc-600">Issued:</span> {formatDate(issueDate)}
+        </div>
+        <div>
+          <span className="text-zinc-600">Expires:</span>{" "}
+          <span
+            className={
+              expiryDate && isExpired(expiryDate) ? "text-red-400" : ""
+            }
+          >
+            {formatDate(expiryDate)}
+          </span>
+        </div>
       </div>
       {documentUrl && (
         <div className="mt-2">
@@ -438,34 +447,19 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function DateWithBadge({ date }: { date: Date | null | undefined }) {
-  const status = expiryStatus(date);
-  return (
-    <span className="inline-flex items-center gap-2">
-      {formatDate(date)}
-      {status !== "none" && status !== "ok" && <StatusBadge status={status} />}
-    </span>
-  );
-}
-
-function DerivedStatus({
-  documentUrl,
+// Single source of truth for the "Active vs Inactive" label on the profile.
+function ActiveBadge({
   expiry,
+  documentUrl,
 }: {
-  documentUrl: string | null;
-  expiry: Date | null;
+  expiry: Date | null | undefined;
+  documentUrl: string | null | undefined;
 }) {
-  if (!documentUrl && !expiry) {
-    return <StatusBadge status="none" label="Not set" />;
-  }
-  if (expiry && isExpired(expiry)) {
-    return <StatusBadge status="expired" />;
-  }
-  if (expiry) {
-    const s = expiryStatus(expiry);
-    if (s === "soon") return <StatusBadge status="soon" />;
-  }
-  return <StatusBadge status="active" />;
+  return isActive({ expiry, documentUrl }) ? (
+    <StatusBadge status="active" />
+  ) : (
+    <StatusBadge status="inactive" />
+  );
 }
 
 function DocLink({ url, label }: { url: string; label: string }) {
