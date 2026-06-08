@@ -222,13 +222,14 @@ function StatCard({
   );
 }
 
-// Active when a document is uploaded AND not past expiry (when expiry is set).
+// Active = expiry date in the future (document optional during transition).
+// Missing = neither expiry nor document set.
 function derivedStatus(
   doc: string | null,
   expiry: Date | null
 ): "ok" | "soon" | "expired" | "missing" {
-  if (!doc) return "missing";
-  if (!expiry) return "ok";
+  if (!expiry && !doc) return "missing";
+  if (!expiry) return "ok"; // doc on file, no expiry — treat as active
   const s = expiryStatus(expiry);
   return s === "expired" ? "expired" : s === "soon" ? "soon" : "ok";
 }
@@ -302,7 +303,7 @@ function PermitDot({
 }
 
 function ExpiryCell({ doc, expiry }: { doc: string | null; expiry: Date | null }) {
-  if (!doc) return <span className="text-zinc-500">No doc</span>;
+  if (!doc && !expiry) return <span className="text-zinc-500">—</span>;
   if (!expiry) return <span className="text-emerald-400">Active</span>;
   const status = expiryStatus(expiry);
   const color =

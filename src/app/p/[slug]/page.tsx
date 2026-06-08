@@ -2,7 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { formatDate, expiryStatus, isExpired } from "@/lib/dates";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Logo } from "@/components/Logo";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { headers } from "next/headers";
+import { ArmoryIssuance } from "./ArmoryIssuance";
 
 type Params = Promise<{ slug: string }>;
 
@@ -10,6 +13,9 @@ export const dynamic = "force-dynamic";
 
 export default async function PublicProfile({ params }: { params: Params }) {
   const { slug } = await params;
+  const session = await auth();
+  if (!session?.user) redirect(`/admin/login?callbackUrl=/p/${slug}`);
+
   const guard = await prisma.guard.findUnique({
     where: { slug },
     include: { trainings: { orderBy: { issueDate: "desc" } } },
@@ -17,11 +23,57 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
   if (!guard) notFound();
 
+  // Operators log every scan against their assigned location.
+  // Armory operators get a confirmation workflow before the log is written.
+  const role = session.user.role ?? "admin";
+  const locationId = session.user.locationId;
+  const locationType = session.user.locationType;
+  const locationName = session.user.locationName;
+
+  let scanLogged = false;
+  let mostRecentArmoryScan: { weaponSerial: string | null; permitContext: string | null } | null = null;
+
+  if (role === "operator" && locationId && locationType === "site") {
+    // For site operators, log the verification scan automatically on view.
+    const h = await headers();
+    await prisma.scanLog.create({
+      data: {
+        guardId: guard.id,
+        scannedById: session.user.id,
+        locationId,
+        scanType: "verification",
+        ipAddress: h.get("x-forwarded-for") ?? null,
+        userAgent: h.get("user-agent") ?? null,
+      },
+    });
+    scanLogged = true;
+  }
+
+  if (role === "operator" && locationId && locationType === "armory") {
+    // Check whether a recent armory issuance already exists for this guard
+    // (within last 12 hours) — useful context for the operator.
+    const recent = await prisma.scanLog.findFirst({
+      where: {
+        guardId: guard.id,
+        locationId,
+        scanType: "armory_out",
+        scannedAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
+      },
+      orderBy: { scannedAt: "desc" },
+    });
+    if (recent) {
+      mostRecentArmoryScan = {
+        weaponSerial: recent.weaponSerial,
+        permitContext: recent.permitContext,
+      };
+    }
+  }
+
   const fullName = `${guard.firstName} ${guard.lastName}`;
 
-  // Derived statuses
   const permits = [
     {
+      key: "permit1" as const,
       label: "Permit 1 — Hand Guns",
       number: guard.permit1Number,
       weapon: guard.permit1WeaponNumber,
@@ -30,6 +82,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
       documentUrl: guard.permit1DocumentUrl,
     },
     {
+      key: "permit2" as const,
       label: "Permit 2 — Rifles",
       number: guard.permit2Number,
       weapon: guard.permit2WeaponNumber,
@@ -53,23 +106,33 @@ export default async function PublicProfile({ params }: { params: Params }) {
     guard.medicalExpiryDate ||
     guard.medicalDocumentUrl;
 
-  // Only show training records that have a document AND aren't soft-deleted.
-  // Show all if you want, but filtering by document keeps the profile honest.
   const trainings = guard.trainings;
 
   return (
     <main className="min-h-screen w-full bg-[#0a0a0a] text-white">
-      {/* Top banner */}
       <div className="bg-black/60 border-b border-[#c9a56a]/20 backdrop-blur sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <Logo size={26} />
-          <div className="text-[10px] uppercase tracking-wider text-zinc-500">
-            Verified Credential
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider">
+            {role === "operator" && locationName ? (
+              <span className="text-zinc-400">
+                <span className="text-zinc-600">@</span>{" "}
+                <span className="text-[#c9a56a]">{locationName}</span>
+              </span>
+            ) : (
+              <span className="text-zinc-500">Verified Credential</span>
+            )}
           </div>
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {scanLogged && (
+          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-3 text-sm text-emerald-300">
+            ✓ Check-in logged at <strong>{locationName}</strong>.
+          </div>
+        )}
+
         {/* Header card */}
         <div className="bg-gradient-to-br from-[#1c1c1c] to-[#141414] rounded-2xl border border-[#c9a56a]/20 overflow-hidden">
           <div className="h-16 bg-gradient-to-r from-[#c9a56a]/30 via-[#c9a56a]/10 to-transparent" />
@@ -105,11 +168,28 @@ export default async function PublicProfile({ params }: { params: Params }) {
           </div>
         </div>
 
+        {/* Armory workflow — only for armory operators */}
+        {role === "operator" && locationType === "armory" && locationId && (
+          <ArmoryIssuance
+            guardId={guard.id}
+            guardName={fullName}
+            locationId={locationId}
+            permits={permits.map((p) => ({
+              key: p.key,
+              label: p.label,
+              permitNumber: p.number,
+              weaponNumber: p.weapon,
+              expiryDate: p.expiryDate ? p.expiryDate.toISOString() : null,
+            }))}
+            recentArmoryScan={mostRecentArmoryScan}
+          />
+        )}
+
         {/* Weapon Permits — only sections with data */}
         {permits.length > 0 && (
           <Section title="Weapon Permits">
-            {permits.map((p) => (
-              <PermitRow key={p.label} {...p} />
+            {permits.map(({ key: _k, ...rest }) => (
+              <PermitRow key={rest.label} {...rest} />
             ))}
           </Section>
         )}
@@ -177,7 +257,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
           </Section>
         )}
 
-        {/* Training history */}
+        {/* Training */}
         {trainings.length > 0 && (
           <Section title={`Training History (${trainings.length})`}>
             <ul className="divide-y divide-white/5">
@@ -224,7 +304,6 @@ export default async function PublicProfile({ params }: { params: Params }) {
           </Section>
         )}
 
-        {/* Footer */}
         <div className="text-center text-xs text-zinc-600 pt-4 pb-8">
           <div>
             Verified by <span className="text-[#c9a56a]">SOC-AFSEC Industries</span>
@@ -326,7 +405,6 @@ function DateWithBadge({ date }: { date: Date | null | undefined }) {
   );
 }
 
-// Active when a document is on file AND it hasn't expired (if an expiry was given).
 function DerivedStatus({
   documentUrl,
   expiry,
@@ -334,8 +412,8 @@ function DerivedStatus({
   documentUrl: string | null;
   expiry: Date | null;
 }) {
-  if (!documentUrl) {
-    return <StatusBadge status="none" label="Document missing" />;
+  if (!documentUrl && !expiry) {
+    return <StatusBadge status="none" label="Not set" />;
   }
   if (expiry && isExpired(expiry)) {
     return <StatusBadge status="expired" />;

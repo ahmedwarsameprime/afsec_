@@ -9,13 +9,77 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Users / Roles ────────────────────────────────────────────────────────
+// role: "admin"     → full access to CRM
+// role: "operator"  → can scan guard QRs at its assigned location only
+//                     (and is logged on every scan)
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
   password  String
   name      String?
+  role      String   @default("admin") // "admin" | "operator"
   createdAt DateTime @default(now())
+
+  // Operators are bound to one Location.
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  scanLogs ScanLog[]
 }
+
+// ─── Locations ────────────────────────────────────────────────────────────
+// type: "site"   → routine check-in / verification scan
+// type: "armory" → weapon issue/return; scan also captures weapon serial
+
+model Location {
+  id        String   @id @default(cuid())
+  name      String
+  code      String?  @unique // optional short code e.g. HIC-01
+  type      String   @default("site") // "site" | "armory"
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  operators User[]
+  scanLogs  ScanLog[]
+}
+
+// ─── Scan log ─────────────────────────────────────────────────────────────
+model ScanLog {
+  id        String   @id @default(cuid())
+  scannedAt DateTime @default(now())
+
+  guardId String
+  guard   Guard  @relation(fields: [guardId], references: [id], onDelete: Cascade)
+
+  // Operator who scanned (and admin if they pulled it up, but we only log
+  // operators in practice).
+  scannedById String
+  scannedBy   User   @relation(fields: [scannedById], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  // Type derived from location.type at log time, so reports stay correct
+  // even if a location is later reclassified.
+  scanType String // "verification" | "armory_out"
+
+  // Armory-specific
+  weaponSerial String? // serial number entered by armory operator
+  permitContext String? // "permit1" or "permit2" — which permit was matched
+
+  ipAddress String?
+  userAgent String?
+  notes     String?
+
+  @@index([scannedAt])
+  @@index([locationId, scannedAt])
+  @@index([guardId, scannedAt])
+}
+
+// ─── Guards / Trainings (unchanged) ───────────────────────────────────────
 
 model Guard {
   id         String  @id @default(cuid())
@@ -30,7 +94,7 @@ model Guard {
   status String @default("active") // active | inactive
 
   // Permit 1 — Hand guns
-  permit1Active       Boolean   @default(false) // legacy; status now derived from doc + expiry
+  permit1Active       Boolean   @default(false) // legacy
   permit1Number       String?
   permit1WeaponNumber String?
   permit1IssueDate    DateTime?
@@ -38,7 +102,7 @@ model Guard {
   permit1DocumentUrl  String?
 
   // Permit 2 — Rifles
-  permit2Active       Boolean   @default(false) // legacy; status now derived from doc + expiry
+  permit2Active       Boolean   @default(false) // legacy
   permit2Number       String?
   permit2WeaponNumber String?
   permit2IssueDate    DateTime?
@@ -46,7 +110,7 @@ model Guard {
   permit2DocumentUrl  String?
 
   // Visa permit
-  visaStatus      String    @default("inactive") // legacy; status now derived from doc + expiry
+  visaStatus      String    @default("inactive") // legacy
   visaNumber      String?
   visaIssueDate   DateTime?
   visaExpiryDate  DateTime?
@@ -62,6 +126,7 @@ model Guard {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   trainings Training[]
+  scanLogs  ScanLog[]
 }
 
 model Training {
@@ -73,7 +138,7 @@ model Training {
   issuer      String?
   issueDate   DateTime?
   expiryDate  DateTime?
-  active      Boolean   @default(true) // legacy; status now derived from doc + expiry
+  active      Boolean   @default(true) // legacy
   documentUrl String?
 
   createdAt DateTime @default(now())
