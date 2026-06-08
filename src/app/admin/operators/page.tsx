@@ -100,10 +100,6 @@ export default async function OperatorsPage() {
             </li>
           ))}
         </ul>
-        <div className="px-4 py-3 border-t border-white/5 text-xs text-zinc-500">
-          To add another admin, run the <code className="text-zinc-300">prisma/add-admin.ts</code> script
-          locally with the prod DATABASE_URL. (We can add an in-CRM admin-create page later.)
-        </div>
       </section>
     </div>
   );
