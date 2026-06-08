@@ -97,6 +97,9 @@ model Guard {
   permit1Active       Boolean   @default(false) // legacy
   permit1Number       String?
   permit1WeaponNumber String?
+  permit1Make         String?
+  permit1Model        String?
+  permit1Clips        Int?
   permit1IssueDate    DateTime?
   permit1ExpiryDate   DateTime?
   permit1DocumentUrl  String?
@@ -105,6 +108,9 @@ model Guard {
   permit2Active       Boolean   @default(false) // legacy
   permit2Number       String?
   permit2WeaponNumber String?
+  permit2Make         String?
+  permit2Model        String?
+  permit2Clips        Int?
   permit2IssueDate    DateTime?
   permit2ExpiryDate   DateTime?
   permit2DocumentUrl  String?

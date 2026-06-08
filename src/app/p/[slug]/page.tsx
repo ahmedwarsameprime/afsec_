@@ -77,6 +77,9 @@ export default async function PublicProfile({ params }: { params: Params }) {
       label: "Permit 1 — Hand Guns",
       number: guard.permit1Number,
       weapon: guard.permit1WeaponNumber,
+      make: guard.permit1Make,
+      model: guard.permit1Model,
+      clips: guard.permit1Clips,
       issueDate: guard.permit1IssueDate,
       expiryDate: guard.permit1ExpiryDate,
       documentUrl: guard.permit1DocumentUrl,
@@ -86,13 +89,23 @@ export default async function PublicProfile({ params }: { params: Params }) {
       label: "Permit 2 — Rifles",
       number: guard.permit2Number,
       weapon: guard.permit2WeaponNumber,
+      make: guard.permit2Make,
+      model: guard.permit2Model,
+      clips: guard.permit2Clips,
       issueDate: guard.permit2IssueDate,
       expiryDate: guard.permit2ExpiryDate,
       documentUrl: guard.permit2DocumentUrl,
     },
   ].filter(
     (p) =>
-      p.number || p.weapon || p.issueDate || p.expiryDate || p.documentUrl
+      p.number ||
+      p.weapon ||
+      p.make ||
+      p.model ||
+      p.clips !== null ||
+      p.issueDate ||
+      p.expiryDate ||
+      p.documentUrl
   );
 
   const visaPresent =
@@ -179,6 +192,9 @@ export default async function PublicProfile({ params }: { params: Params }) {
               label: p.label,
               permitNumber: p.number,
               weaponNumber: p.weapon,
+              make: p.make,
+              model: p.model,
+              clips: p.clips,
               expiryDate: p.expiryDate ? p.expiryDate.toISOString() : null,
             }))}
             recentArmoryScan={mostRecentArmoryScan}
@@ -321,6 +337,9 @@ function PermitRow({
   label,
   number,
   weapon,
+  make,
+  model,
+  clips,
   issueDate,
   expiryDate,
   documentUrl,
@@ -328,27 +347,51 @@ function PermitRow({
   label: string;
   number: string | null;
   weapon: string | null;
+  make: string | null;
+  model: string | null;
+  clips: number | null;
   issueDate: Date | null;
   expiryDate: Date | null;
   documentUrl: string | null;
 }) {
+  const hasWeapon = make || model || weapon || clips !== null;
   return (
     <div className="px-4 py-3 border-b border-white/5 last:border-0">
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="font-medium text-zinc-100">{label}</div>
         <DerivedStatus documentUrl={documentUrl} expiry={expiryDate} />
       </div>
+
+      {hasWeapon && (
+        <div className="bg-black/30 rounded-md px-3 py-2 mb-2 grid grid-cols-2 gap-y-1.5 gap-x-3 text-xs text-zinc-400">
+          {(make || model) && (
+            <div className="col-span-2">
+              <span className="text-zinc-600">Weapon:</span>{" "}
+              <span className="text-zinc-100 font-medium">
+                {[make, model].filter(Boolean).join(" ")}
+              </span>
+            </div>
+          )}
+          {weapon && (
+            <div>
+              <span className="text-zinc-600">Serial:</span>{" "}
+              <span className="font-mono text-zinc-200">{weapon}</span>
+            </div>
+          )}
+          {clips !== null && (
+            <div>
+              <span className="text-zinc-600">Clips:</span>{" "}
+              <span className="text-zinc-100 font-medium">{clips}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-xs text-zinc-400">
         {number && (
           <div>
             <span className="text-zinc-600">Permit No.</span>{" "}
             <span className="font-mono text-zinc-200">{number}</span>
-          </div>
-        )}
-        {weapon && (
-          <div>
-            <span className="text-zinc-600">Weapon No.</span>{" "}
-            <span className="font-mono text-zinc-200">{weapon}</span>
           </div>
         )}
         {issueDate && (

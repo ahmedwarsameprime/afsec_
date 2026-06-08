@@ -26,6 +26,12 @@ function toOptStr(v: FormDataEntryValue | null): string | null {
   const s = toStr(v);
   return s.length ? s : null;
 }
+function toOptInt(v: FormDataEntryValue | null): number | null {
+  const s = toStr(v);
+  if (!s) return null;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 
 export default async function EditGuardPage({ params }: { params: Params }) {
   const { id } = await params;
@@ -90,11 +96,17 @@ export default async function EditGuardPage({ params }: { params: Params }) {
 
         permit1Number: toOptStr(formData.get("permit1Number")),
         permit1WeaponNumber: toOptStr(formData.get("permit1WeaponNumber")),
+        permit1Make: toOptStr(formData.get("permit1Make")),
+        permit1Model: toOptStr(formData.get("permit1Model")),
+        permit1Clips: toOptInt(formData.get("permit1Clips")),
         permit1IssueDate: toDate(formData.get("permit1IssueDate")),
         permit1ExpiryDate: toDate(formData.get("permit1ExpiryDate")),
 
         permit2Number: toOptStr(formData.get("permit2Number")),
         permit2WeaponNumber: toOptStr(formData.get("permit2WeaponNumber")),
+        permit2Make: toOptStr(formData.get("permit2Make")),
+        permit2Model: toOptStr(formData.get("permit2Model")),
+        permit2Clips: toOptInt(formData.get("permit2Clips")),
         permit2IssueDate: toDate(formData.get("permit2IssueDate")),
         permit2ExpiryDate: toDate(formData.get("permit2ExpiryDate")),
 
@@ -234,6 +246,9 @@ export default async function EditGuardPage({ params }: { params: Params }) {
           prefix="permit1"
           permitNumber={guard.permit1Number}
           weaponNumber={guard.permit1WeaponNumber}
+          make={guard.permit1Make}
+          model={guard.permit1Model}
+          clips={guard.permit1Clips}
           issueDate={guard.permit1IssueDate}
           expiryDate={guard.permit1ExpiryDate}
           documentUrl={guard.permit1DocumentUrl}
@@ -245,6 +260,9 @@ export default async function EditGuardPage({ params }: { params: Params }) {
           prefix="permit2"
           permitNumber={guard.permit2Number}
           weaponNumber={guard.permit2WeaponNumber}
+          make={guard.permit2Make}
+          model={guard.permit2Model}
+          clips={guard.permit2Clips}
           issueDate={guard.permit2IssueDate}
           expiryDate={guard.permit2ExpiryDate}
           documentUrl={guard.permit2DocumentUrl}
@@ -354,6 +372,9 @@ function PermitSection({
   prefix,
   permitNumber,
   weaponNumber,
+  make,
+  model,
+  clips,
   issueDate,
   expiryDate,
   documentUrl,
@@ -362,6 +383,9 @@ function PermitSection({
   prefix: "permit1" | "permit2";
   permitNumber: string | null;
   weaponNumber: string | null;
+  make: string | null;
+  model: string | null;
+  clips: number | null;
   issueDate: Date | null;
   expiryDate: Date | null;
   documentUrl: string | null;
@@ -376,7 +400,30 @@ function PermitSection({
           <Input
             name={`${prefix}WeaponNumber`}
             defaultValue={weaponNumber ?? ""}
-            placeholder="Matches the permit"
+            placeholder="Stamped on the firearm"
+          />
+        </Field>
+        <Field label="Make">
+          <Input
+            name={`${prefix}Make`}
+            defaultValue={make ?? ""}
+            placeholder="e.g. Norinco, Glock, Smith & Wesson"
+          />
+        </Field>
+        <Field label="Model">
+          <Input
+            name={`${prefix}Model`}
+            defaultValue={model ?? ""}
+            placeholder="e.g. AK-47, G19"
+          />
+        </Field>
+        <Field label="Clips Assigned">
+          <Input
+            type="number"
+            min={0}
+            name={`${prefix}Clips`}
+            defaultValue={clips ?? ""}
+            placeholder="e.g. 7"
           />
         </Field>
         <Field label="Issue Date">
