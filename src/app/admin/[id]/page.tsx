@@ -10,6 +10,9 @@ type Params = Promise<{ id: string }>;
 
 export const dynamic = "force-dynamic";
 
+const IMG_EXT = ["jpg", "jpeg", "png", "webp"];
+const DOC_EXT = ["jpg", "jpeg", "png", "webp", "pdf"];
+
 function toDate(v: FormDataEntryValue | null): Date | null {
   const s = String(v ?? "").trim();
   if (!s) return null;
@@ -35,25 +38,45 @@ export default async function EditGuardPage({ params }: { params: Params }) {
   async function save(formData: FormData) {
     "use server";
 
-    const photo = formData.get("photo") as File | null;
-    const medical = formData.get("medicalDocument") as File | null;
+    // All upload slots — name -> {prefix, exts}
+    const uploads = {
+      photo: { prefix: "photo", exts: IMG_EXT, col: "photoUrl" },
+      permit1Document: { prefix: "permit1", exts: DOC_EXT, col: "permit1DocumentUrl" },
+      permit2Document: { prefix: "permit2", exts: DOC_EXT, col: "permit2DocumentUrl" },
+      visaDocument: { prefix: "visa", exts: DOC_EXT, col: "visaDocumentUrl" },
+      medicalDocument: { prefix: "medical", exts: DOC_EXT, col: "medicalDocumentUrl" },
+    } as const;
 
-    const photoUrl = photo
-      ? await saveUpload(photo, `${id}-photo`, ["jpg", "jpeg", "png", "webp"])
-      : undefined;
-    const medicalDocumentUrl = medical
-      ? await saveUpload(medical, `${id}-medical`, [
-          "jpg", "jpeg", "png", "webp", "pdf",
-        ])
-      : undefined;
+    type ColName =
+      | "photoUrl"
+      | "permit1DocumentUrl"
+      | "permit2DocumentUrl"
+      | "visaDocumentUrl"
+      | "medicalDocumentUrl";
 
-    if (photoUrl || medicalDocumentUrl) {
+    const newUrls: Partial<Record<ColName, string>> = {};
+    for (const [field, cfg] of Object.entries(uploads)) {
+      const f = formData.get(field) as File | null;
+      if (!f || f.size === 0) continue;
+      const url = await saveUpload(f, `${id}-${cfg.prefix}`, [...cfg.exts]);
+      if (url) newUrls[cfg.col] = url;
+    }
+
+    // Clean up any documents that are being replaced.
+    if (Object.keys(newUrls).length > 0) {
       const existing = await prisma.guard.findUnique({
         where: { id },
-        select: { photoUrl: true, medicalDocumentUrl: true },
+        select: {
+          photoUrl: true,
+          permit1DocumentUrl: true,
+          permit2DocumentUrl: true,
+          visaDocumentUrl: true,
+          medicalDocumentUrl: true,
+        },
       });
-      if (photoUrl) await deleteUpload(existing?.photoUrl);
-      if (medicalDocumentUrl) await deleteUpload(existing?.medicalDocumentUrl);
+      for (const col of Object.keys(newUrls) as ColName[]) {
+        await deleteUpload(existing?.[col]);
+      }
     }
 
     await prisma.guard.update({
@@ -64,28 +87,27 @@ export default async function EditGuardPage({ params }: { params: Params }) {
         jobTitle: toStr(formData.get("jobTitle")),
         employeeId: toOptStr(formData.get("employeeId")),
         status: toStr(formData.get("status")) || "active",
-        ...(photoUrl ? { photoUrl } : {}),
 
-        permit1Active: formData.get("permit1Active") === "on",
         permit1Number: toOptStr(formData.get("permit1Number")),
+        permit1WeaponNumber: toOptStr(formData.get("permit1WeaponNumber")),
         permit1IssueDate: toDate(formData.get("permit1IssueDate")),
         permit1ExpiryDate: toDate(formData.get("permit1ExpiryDate")),
 
-        permit2Active: formData.get("permit2Active") === "on",
         permit2Number: toOptStr(formData.get("permit2Number")),
+        permit2WeaponNumber: toOptStr(formData.get("permit2WeaponNumber")),
         permit2IssueDate: toDate(formData.get("permit2IssueDate")),
         permit2ExpiryDate: toDate(formData.get("permit2ExpiryDate")),
 
-        visaStatus: toStr(formData.get("visaStatus")) || "inactive",
         visaNumber: toOptStr(formData.get("visaNumber")),
         visaIssueDate: toDate(formData.get("visaIssueDate")),
         visaExpiryDate: toDate(formData.get("visaExpiryDate")),
 
         medicalClearanceDate: toDate(formData.get("medicalClearanceDate")),
         medicalExpiryDate: toDate(formData.get("medicalExpiryDate")),
-        ...(medicalDocumentUrl ? { medicalDocumentUrl } : {}),
 
         notes: toOptStr(formData.get("notes")),
+
+        ...newUrls,
       },
     });
 
@@ -98,10 +120,23 @@ export default async function EditGuardPage({ params }: { params: Params }) {
     "use server";
     const g = await prisma.guard.findUnique({
       where: { id },
-      select: { photoUrl: true, medicalDocumentUrl: true },
+      select: {
+        photoUrl: true,
+        permit1DocumentUrl: true,
+        permit2DocumentUrl: true,
+        visaDocumentUrl: true,
+        medicalDocumentUrl: true,
+        trainings: { select: { documentUrl: true } },
+      },
     });
-    await deleteUpload(g?.photoUrl);
-    await deleteUpload(g?.medicalDocumentUrl);
+    if (g) {
+      await deleteUpload(g.photoUrl);
+      await deleteUpload(g.permit1DocumentUrl);
+      await deleteUpload(g.permit2DocumentUrl);
+      await deleteUpload(g.visaDocumentUrl);
+      await deleteUpload(g.medicalDocumentUrl);
+      for (const t of g.trainings) await deleteUpload(t.documentUrl);
+    }
     await prisma.guard.delete({ where: { id } });
     redirect("/admin");
   }
@@ -138,6 +173,13 @@ export default async function EditGuardPage({ params }: { params: Params }) {
           </Link>
         </div>
       </div>
+
+      <p className="text-xs text-zinc-500 -mt-2">
+        Tip: a permit, visa, training or medical record is shown as{" "}
+        <span className="text-emerald-400">Active</span> on the public profile
+        when its document is uploaded and not past its expiry date. Permits
+        with no data are hidden entirely.
+      </p>
 
       <form action={save} className="space-y-6">
         {/* Identity */}
@@ -187,72 +229,30 @@ export default async function EditGuardPage({ params }: { params: Params }) {
         </Section>
 
         {/* Permit 1 */}
-        <Section title="Permit 1 — Hand Guns">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Active">
-              <Checkbox name="permit1Active" defaultChecked={guard.permit1Active} />
-            </Field>
-            <Field label="Permit Number">
-              <Input
-                name="permit1Number"
-                defaultValue={guard.permit1Number ?? ""}
-              />
-            </Field>
-            <Field label="Issue Date">
-              <Input
-                type="date"
-                name="permit1IssueDate"
-                defaultValue={dateInputValue(guard.permit1IssueDate)}
-              />
-            </Field>
-            <Field label="Expiry Date">
-              <Input
-                type="date"
-                name="permit1ExpiryDate"
-                defaultValue={dateInputValue(guard.permit1ExpiryDate)}
-              />
-            </Field>
-          </div>
-        </Section>
+        <PermitSection
+          title="Permit 1 — Hand Guns"
+          prefix="permit1"
+          permitNumber={guard.permit1Number}
+          weaponNumber={guard.permit1WeaponNumber}
+          issueDate={guard.permit1IssueDate}
+          expiryDate={guard.permit1ExpiryDate}
+          documentUrl={guard.permit1DocumentUrl}
+        />
 
         {/* Permit 2 */}
-        <Section title="Permit 2 — Rifles">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Active">
-              <Checkbox name="permit2Active" defaultChecked={guard.permit2Active} />
-            </Field>
-            <Field label="Permit Number">
-              <Input
-                name="permit2Number"
-                defaultValue={guard.permit2Number ?? ""}
-              />
-            </Field>
-            <Field label="Issue Date">
-              <Input
-                type="date"
-                name="permit2IssueDate"
-                defaultValue={dateInputValue(guard.permit2IssueDate)}
-              />
-            </Field>
-            <Field label="Expiry Date">
-              <Input
-                type="date"
-                name="permit2ExpiryDate"
-                defaultValue={dateInputValue(guard.permit2ExpiryDate)}
-              />
-            </Field>
-          </div>
-        </Section>
+        <PermitSection
+          title="Permit 2 — Rifles"
+          prefix="permit2"
+          permitNumber={guard.permit2Number}
+          weaponNumber={guard.permit2WeaponNumber}
+          issueDate={guard.permit2IssueDate}
+          expiryDate={guard.permit2ExpiryDate}
+          documentUrl={guard.permit2DocumentUrl}
+        />
 
         {/* Visa */}
         <Section title="Visa Permit">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Status">
-              <Select name="visaStatus" defaultValue={guard.visaStatus}>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </Select>
-            </Field>
             <Field label="Visa Number">
               <Input name="visaNumber" defaultValue={guard.visaNumber ?? ""} />
             </Field>
@@ -270,6 +270,13 @@ export default async function EditGuardPage({ params }: { params: Params }) {
                 defaultValue={dateInputValue(guard.visaExpiryDate)}
               />
             </Field>
+            <div className="sm:col-span-2">
+              <DocumentField
+                label="Visa Document"
+                name="visaDocument"
+                existingUrl={guard.visaDocumentUrl}
+              />
+            </div>
           </div>
         </Section>
 
@@ -291,30 +298,11 @@ export default async function EditGuardPage({ params }: { params: Params }) {
               />
             </Field>
             <div className="sm:col-span-2">
-              <Field label="Medical Document (PDF or image)">
-                <div className="flex items-center gap-3 flex-wrap">
-                  {guard.medicalDocumentUrl && (
-                    <a
-                      href={guard.medicalDocumentUrl}
-                      target="_blank"
-                      rel="noopener"
-                      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-sm hover:bg-[#c9a56a]/20"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                      Current document
-                    </a>
-                  )}
-                  <input
-                    type="file"
-                    name="medicalDocument"
-                    accept="image/*,application/pdf"
-                    className="text-sm text-zinc-400 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-[#c9a56a] file:text-black file:font-medium file:cursor-pointer hover:file:bg-[#e0c490]"
-                  />
-                </div>
-                <div className="text-xs text-zinc-500 mt-1">
-                  Replaces the existing document. Max 10 MB.
-                </div>
-              </Field>
+              <DocumentField
+                label="Medical Document"
+                name="medicalDocument"
+                existingUrl={guard.medicalDocumentUrl}
+              />
             </div>
           </div>
         </Section>
@@ -358,6 +346,100 @@ export default async function EditGuardPage({ params }: { params: Params }) {
         </form>
       </Section>
     </div>
+  );
+}
+
+function PermitSection({
+  title,
+  prefix,
+  permitNumber,
+  weaponNumber,
+  issueDate,
+  expiryDate,
+  documentUrl,
+}: {
+  title: string;
+  prefix: "permit1" | "permit2";
+  permitNumber: string | null;
+  weaponNumber: string | null;
+  issueDate: Date | null;
+  expiryDate: Date | null;
+  documentUrl: string | null;
+}) {
+  return (
+    <Section title={title}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Permit Number">
+          <Input name={`${prefix}Number`} defaultValue={permitNumber ?? ""} />
+        </Field>
+        <Field label="Weapon Serial Number">
+          <Input
+            name={`${prefix}WeaponNumber`}
+            defaultValue={weaponNumber ?? ""}
+            placeholder="Matches the permit"
+          />
+        </Field>
+        <Field label="Issue Date">
+          <Input
+            type="date"
+            name={`${prefix}IssueDate`}
+            defaultValue={dateInputValue(issueDate)}
+          />
+        </Field>
+        <Field label="Expiry Date">
+          <Input
+            type="date"
+            name={`${prefix}ExpiryDate`}
+            defaultValue={dateInputValue(expiryDate)}
+          />
+        </Field>
+        <div className="sm:col-span-2">
+          <DocumentField
+            label="Permit Document"
+            name={`${prefix}Document`}
+            existingUrl={documentUrl}
+          />
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+function DocumentField({
+  label,
+  name,
+  existingUrl,
+}: {
+  label: string;
+  name: string;
+  existingUrl: string | null;
+}) {
+  return (
+    <Field label={`${label} (PDF or image)`}>
+      <div className="flex items-center gap-3 flex-wrap">
+        {existingUrl && (
+          <a
+            href={existingUrl}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-sm hover:bg-[#c9a56a]/20"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Current document
+          </a>
+        )}
+        <input
+          type="file"
+          name={name}
+          accept="image/*,application/pdf"
+          className="text-sm text-zinc-400 file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-[#c9a56a] file:text-black file:font-medium file:cursor-pointer hover:file:bg-[#e0c490]"
+        />
+      </div>
+      <div className="text-xs text-zinc-500 mt-1">
+        {existingUrl ? "Choose a new file to replace the existing document. " : ""}
+        Max 10 MB.
+      </div>
+    </Field>
   );
 }
 
@@ -424,25 +506,5 @@ function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
       {...props}
       className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#c9a56a] focus:ring-1 focus:ring-[#c9a56a]/40"
     />
-  );
-}
-
-function Checkbox({
-  name,
-  defaultChecked,
-}: {
-  name: string;
-  defaultChecked: boolean;
-}) {
-  return (
-    <label className="inline-flex items-center gap-2 cursor-pointer">
-      <input
-        type="checkbox"
-        name={name}
-        defaultChecked={defaultChecked}
-        className="w-5 h-5 accent-[#c9a56a] bg-[#0a0a0a] border-white/20 rounded"
-      />
-      <span className="text-sm text-zinc-300">Active</span>
-    </label>
   );
 }

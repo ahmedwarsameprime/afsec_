@@ -14,14 +14,15 @@ export default async function AdminDashboard() {
   const total = guards.length;
   const active = guards.filter((g) => g.status === "active").length;
   const expiringSoon = guards.filter((g) => {
-    const dates = [
-      g.permit1ExpiryDate,
-      g.permit2ExpiryDate,
-      g.visaExpiryDate,
-      g.medicalExpiryDate,
+    const slots: Array<[string | null, Date | null]> = [
+      [g.permit1DocumentUrl, g.permit1ExpiryDate],
+      [g.permit2DocumentUrl, g.permit2ExpiryDate],
+      [g.visaDocumentUrl, g.visaExpiryDate],
+      [g.medicalDocumentUrl, g.medicalExpiryDate],
     ];
-    return dates.some((d) => {
-      const s = expiryStatus(d);
+    return slots.some(([doc, exp]) => {
+      if (!doc) return false; // no document → not "expiring", just missing
+      const s = expiryStatus(exp);
       return s === "soon" || s === "expired";
     });
   }).length;
@@ -102,10 +103,10 @@ export default async function AdminDashboard() {
                       </div>
 
                       <div className="mt-3 grid grid-cols-2 gap-1.5 text-[10px]">
-                        <ChipRow label="P1" active={g.permit1Active} expiry={g.permit1ExpiryDate} />
-                        <ChipRow label="P2" active={g.permit2Active} expiry={g.permit2ExpiryDate} />
-                        <ChipRow label="Visa" active={g.visaStatus === "active"} expiry={g.visaExpiryDate} />
-                        <ChipRow label="Med" active={true} expiry={g.medicalExpiryDate} />
+                        <ChipRow label="P1" doc={g.permit1DocumentUrl} expiry={g.permit1ExpiryDate} hasData={!!(g.permit1Number || g.permit1WeaponNumber || g.permit1ExpiryDate || g.permit1DocumentUrl)} />
+                        <ChipRow label="P2" doc={g.permit2DocumentUrl} expiry={g.permit2ExpiryDate} hasData={!!(g.permit2Number || g.permit2WeaponNumber || g.permit2ExpiryDate || g.permit2DocumentUrl)} />
+                        <ChipRow label="Visa" doc={g.visaDocumentUrl} expiry={g.visaExpiryDate} hasData={!!(g.visaNumber || g.visaExpiryDate || g.visaDocumentUrl)} />
+                        <ChipRow label="Med" doc={g.medicalDocumentUrl} expiry={g.medicalExpiryDate} hasData={!!(g.medicalClearanceDate || g.medicalExpiryDate || g.medicalDocumentUrl)} />
                       </div>
                     </div>
                   </div>
@@ -162,15 +163,15 @@ export default async function AdminDashboard() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1 items-center">
-                          <PermitDot label="P1" active={g.permit1Active} expiry={g.permit1ExpiryDate} />
-                          <PermitDot label="P2" active={g.permit2Active} expiry={g.permit2ExpiryDate} />
+                          <PermitDot label="P1" doc={g.permit1DocumentUrl} expiry={g.permit1ExpiryDate} />
+                          <PermitDot label="P2" doc={g.permit2DocumentUrl} expiry={g.permit2ExpiryDate} />
                         </div>
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        <ExpiryCell active={g.visaStatus === "active"} expiry={g.visaExpiryDate} />
+                        <ExpiryCell doc={g.visaDocumentUrl} expiry={g.visaExpiryDate} />
                       </td>
                       <td className="px-4 py-3 text-xs">
-                        <ExpiryCell active={true} expiry={g.medicalExpiryDate} />
+                        <ExpiryCell doc={g.medicalDocumentUrl} expiry={g.medicalExpiryDate} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link
@@ -221,51 +222,74 @@ function StatCard({
   );
 }
 
+// Active when a document is uploaded AND not past expiry (when expiry is set).
+function derivedStatus(
+  doc: string | null,
+  expiry: Date | null
+): "ok" | "soon" | "expired" | "missing" {
+  if (!doc) return "missing";
+  if (!expiry) return "ok";
+  const s = expiryStatus(expiry);
+  return s === "expired" ? "expired" : s === "soon" ? "soon" : "ok";
+}
+
 function ChipRow({
   label,
-  active,
+  doc,
   expiry,
+  hasData,
 }: {
   label: string;
-  active: boolean;
+  doc: string | null;
   expiry: Date | null;
+  hasData: boolean;
 }) {
-  const status = !active ? "inactive" : expiryStatus(expiry);
-  const styleMap: Record<string, string> = {
+  if (!hasData) {
+    return (
+      <span className="inline-flex items-center justify-between gap-1 px-2 py-1 rounded border border-dashed border-zinc-700 text-zinc-600 text-[10px]">
+        <span className="font-bold tracking-wider">{label}</span>
+        <span>—</span>
+      </span>
+    );
+  }
+  const status = derivedStatus(doc, expiry);
+  const styleMap = {
     ok: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
     soon: "bg-amber-500/15 text-amber-300 border-amber-500/30",
     expired: "bg-red-500/15 text-red-300 border-red-500/30",
-    inactive: "bg-zinc-500/10 text-zinc-500 border-zinc-500/20",
-    none: "bg-zinc-500/10 text-zinc-500 border-zinc-500/20",
+    missing: "bg-zinc-500/10 text-zinc-500 border-zinc-500/20",
+  };
+  const labels = {
+    ok: expiry ? formatDate(expiry).split(" ").slice(1).join(" ") : "Active",
+    soon: expiry ? formatDate(expiry).split(" ").slice(1).join(" ") : "Soon",
+    expired: "Expired",
+    missing: "No doc",
   };
   return (
     <span
       className={`inline-flex items-center justify-between gap-1 px-2 py-1 rounded border text-[10px] font-medium ${styleMap[status]}`}
     >
       <span className="font-bold tracking-wider">{label}</span>
-      <span className="truncate">
-        {!active ? "Inactive" : expiry ? formatDate(expiry).split(" ").slice(1).join(" ") : "—"}
-      </span>
+      <span className="truncate">{labels[status]}</span>
     </span>
   );
 }
 
 function PermitDot({
   label,
-  active,
+  doc,
   expiry,
 }: {
   label: string;
-  active: boolean;
+  doc: string | null;
   expiry: Date | null;
 }) {
-  const status = !active ? "inactive" : expiryStatus(expiry);
-  const colorMap: Record<string, string> = {
+  const status = derivedStatus(doc, expiry);
+  const colorMap = {
     ok: "bg-emerald-500/15 text-emerald-300",
     soon: "bg-amber-500/15 text-amber-300",
     expired: "bg-red-500/15 text-red-300",
-    inactive: "bg-zinc-500/15 text-zinc-400",
-    none: "bg-zinc-500/15 text-zinc-500",
+    missing: "bg-zinc-500/15 text-zinc-500",
   };
   return (
     <span
@@ -277,9 +301,9 @@ function PermitDot({
   );
 }
 
-function ExpiryCell({ active, expiry }: { active: boolean; expiry: Date | null }) {
-  if (!active) return <span className="text-zinc-500">Inactive</span>;
-  if (!expiry) return <span className="text-zinc-500">—</span>;
+function ExpiryCell({ doc, expiry }: { doc: string | null; expiry: Date | null }) {
+  if (!doc) return <span className="text-zinc-500">No doc</span>;
+  if (!expiry) return <span className="text-emerald-400">Active</span>;
   const status = expiryStatus(expiry);
   const color =
     status === "expired"

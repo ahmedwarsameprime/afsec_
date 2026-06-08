@@ -2,19 +2,28 @@
 
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { saveUpload, deleteUpload } from "@/lib/storage";
 
 type FormInput = {
   name: string;
   issuer: string;
   issueDate: string;
   expiryDate: string;
-  active: boolean;
 };
 
 function parseDate(s: string): Date | null {
   if (!s) return null;
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
+}
+
+async function revalidateGuard(guardId: string) {
+  const g = await prisma.guard.findUnique({
+    where: { id: guardId },
+    select: { slug: true },
+  });
+  revalidatePath(`/admin/${guardId}`);
+  if (g) revalidatePath(`/p/${g.slug}`);
 }
 
 export async function addTraining(guardId: string, data: FormInput) {
@@ -25,15 +34,9 @@ export async function addTraining(guardId: string, data: FormInput) {
       issuer: data.issuer.trim() || null,
       issueDate: parseDate(data.issueDate),
       expiryDate: parseDate(data.expiryDate),
-      active: data.active,
     },
   });
-  const g = await prisma.guard.findUnique({
-    where: { id: guardId },
-    select: { slug: true },
-  });
-  revalidatePath(`/admin/${guardId}`);
-  if (g) revalidatePath(`/p/${g.slug}`);
+  await revalidateGuard(guardId);
 }
 
 export async function updateTraining(
@@ -48,23 +51,44 @@ export async function updateTraining(
       issuer: data.issuer.trim() || null,
       issueDate: parseDate(data.issueDate),
       expiryDate: parseDate(data.expiryDate),
-      active: data.active,
     },
   });
-  const g = await prisma.guard.findUnique({
-    where: { id: guardId },
-    select: { slug: true },
-  });
-  revalidatePath(`/admin/${guardId}`);
-  if (g) revalidatePath(`/p/${g.slug}`);
+  await revalidateGuard(guardId);
 }
 
 export async function deleteTraining(id: string, guardId: string) {
-  await prisma.training.delete({ where: { id } });
-  const g = await prisma.guard.findUnique({
-    where: { id: guardId },
-    select: { slug: true },
+  const t = await prisma.training.findUnique({
+    where: { id },
+    select: { documentUrl: true },
   });
-  revalidatePath(`/admin/${guardId}`);
-  if (g) revalidatePath(`/p/${g.slug}`);
+  if (t?.documentUrl) await deleteUpload(t.documentUrl);
+  await prisma.training.delete({ where: { id } });
+  await revalidateGuard(guardId);
+}
+
+export async function replaceTrainingDocument(
+  trainingId: string,
+  guardId: string,
+  formData: FormData
+) {
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return;
+
+  const url = await saveUpload(file, `${guardId}-training-${trainingId}`, [
+    "jpg", "jpeg", "png", "webp", "pdf",
+  ]);
+  if (!url) return;
+
+  const existing = await prisma.training.findUnique({
+    where: { id: trainingId },
+    select: { documentUrl: true },
+  });
+  if (existing?.documentUrl) await deleteUpload(existing.documentUrl);
+
+  await prisma.training.update({
+    where: { id: trainingId },
+    data: { documentUrl: url },
+  });
+
+  await revalidateGuard(guardId);
 }

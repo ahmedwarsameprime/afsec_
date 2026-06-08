@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatDate, expiryStatus } from "@/lib/dates";
+import { formatDate, expiryStatus, isExpired } from "@/lib/dates";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Logo } from "@/components/Logo";
 import { notFound } from "next/navigation";
@@ -19,12 +19,50 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
   const fullName = `${guard.firstName} ${guard.lastName}`;
 
+  // Derived statuses
+  const permits = [
+    {
+      label: "Permit 1 — Hand Guns",
+      number: guard.permit1Number,
+      weapon: guard.permit1WeaponNumber,
+      issueDate: guard.permit1IssueDate,
+      expiryDate: guard.permit1ExpiryDate,
+      documentUrl: guard.permit1DocumentUrl,
+    },
+    {
+      label: "Permit 2 — Rifles",
+      number: guard.permit2Number,
+      weapon: guard.permit2WeaponNumber,
+      issueDate: guard.permit2IssueDate,
+      expiryDate: guard.permit2ExpiryDate,
+      documentUrl: guard.permit2DocumentUrl,
+    },
+  ].filter(
+    (p) =>
+      p.number || p.weapon || p.issueDate || p.expiryDate || p.documentUrl
+  );
+
+  const visaPresent =
+    guard.visaNumber ||
+    guard.visaIssueDate ||
+    guard.visaExpiryDate ||
+    guard.visaDocumentUrl;
+
+  const medicalPresent =
+    guard.medicalClearanceDate ||
+    guard.medicalExpiryDate ||
+    guard.medicalDocumentUrl;
+
+  // Only show training records that have a document AND aren't soft-deleted.
+  // Show all if you want, but filtering by document keeps the profile honest.
+  const trainings = guard.trainings;
+
   return (
     <main className="min-h-screen w-full bg-[#0a0a0a] text-white">
       {/* Top banner */}
       <div className="bg-black/60 border-b border-[#c9a56a]/20 backdrop-blur sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Logo size={28} />
+          <Logo size={26} />
           <div className="text-[10px] uppercase tracking-wider text-zinc-500">
             Verified Credential
           </div>
@@ -67,110 +105,124 @@ export default async function PublicProfile({ params }: { params: Params }) {
           </div>
         </div>
 
-        {/* Permits */}
-        <Section title="Weapon Permits">
-          <PermitRow
-            label="Permit 1 — Hand Guns"
-            active={guard.permit1Active}
-            number={guard.permit1Number}
-            issueDate={guard.permit1IssueDate}
-            expiryDate={guard.permit1ExpiryDate}
-          />
-          <PermitRow
-            label="Permit 2 — Rifles"
-            active={guard.permit2Active}
-            number={guard.permit2Number}
-            issueDate={guard.permit2IssueDate}
-            expiryDate={guard.permit2ExpiryDate}
-          />
-        </Section>
+        {/* Weapon Permits — only sections with data */}
+        {permits.length > 0 && (
+          <Section title="Weapon Permits">
+            {permits.map((p) => (
+              <PermitRow key={p.label} {...p} />
+            ))}
+          </Section>
+        )}
 
         {/* Visa */}
-        <Section title="Visa Permit">
-          <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
-            <Field label="Status">
-              <StatusBadge status={guard.visaStatus === "active" ? "active" : "inactive"} />
-            </Field>
-            <Field label="Number">
-              <span className="font-mono text-zinc-200">{guard.visaNumber ?? "—"}</span>
-            </Field>
-            <Field label="Issued">
-              <span>{formatDate(guard.visaIssueDate)}</span>
-            </Field>
-            <Field label="Expires">
-              <DateWithBadge date={guard.visaExpiryDate} />
-            </Field>
-          </div>
-        </Section>
+        {visaPresent && (
+          <Section title="Visa Permit">
+            <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
+              <Field label="Status">
+                <DerivedStatus
+                  documentUrl={guard.visaDocumentUrl}
+                  expiry={guard.visaExpiryDate}
+                />
+              </Field>
+              {guard.visaNumber && (
+                <Field label="Number">
+                  <span className="font-mono text-zinc-200">{guard.visaNumber}</span>
+                </Field>
+              )}
+              {guard.visaIssueDate && (
+                <Field label="Issued">
+                  <span>{formatDate(guard.visaIssueDate)}</span>
+                </Field>
+              )}
+              {guard.visaExpiryDate && (
+                <Field label="Expires">
+                  <DateWithBadge date={guard.visaExpiryDate} />
+                </Field>
+              )}
+              {guard.visaDocumentUrl && (
+                <div className="col-span-2">
+                  <DocLink url={guard.visaDocumentUrl} label="View visa document" />
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* Medical */}
-        <Section title="Medical Clearance">
-          <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
-            <Field label="Cleared">
-              <span>{formatDate(guard.medicalClearanceDate)}</span>
-            </Field>
-            <Field label="Expires">
-              <DateWithBadge date={guard.medicalExpiryDate} />
-            </Field>
-            {guard.medicalDocumentUrl && (
-              <div className="col-span-2">
-                <a
-                  href={guard.medicalDocumentUrl}
-                  target="_blank"
-                  rel="noopener"
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-xs font-medium hover:bg-[#c9a56a]/20"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  View medical document
-                </a>
-              </div>
-            )}
-          </div>
-        </Section>
+        {medicalPresent && (
+          <Section title="Medical Clearance">
+            <div className="px-4 py-3 grid grid-cols-2 gap-3 text-sm">
+              <Field label="Status">
+                <DerivedStatus
+                  documentUrl={guard.medicalDocumentUrl}
+                  expiry={guard.medicalExpiryDate}
+                />
+              </Field>
+              {guard.medicalClearanceDate && (
+                <Field label="Cleared">
+                  <span>{formatDate(guard.medicalClearanceDate)}</span>
+                </Field>
+              )}
+              {guard.medicalExpiryDate && (
+                <Field label="Expires">
+                  <DateWithBadge date={guard.medicalExpiryDate} />
+                </Field>
+              )}
+              {guard.medicalDocumentUrl && (
+                <div className="col-span-2">
+                  <DocLink url={guard.medicalDocumentUrl} label="View medical document" />
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* Training history */}
-        <Section title={`Training History (${guard.trainings.length})`}>
-          {guard.trainings.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-zinc-500">
-              No training records on file.
-            </div>
-          ) : (
+        {trainings.length > 0 && (
+          <Section title={`Training History (${trainings.length})`}>
             <ul className="divide-y divide-white/5">
-              {guard.trainings.map((t) => {
-                const status = !t.active
-                  ? "inactive"
-                  : expiryStatus(t.expiryDate);
-                return (
-                  <li key={t.id} className="px-4 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-medium text-zinc-100 truncate">
-                          {t.name}
-                        </div>
-                        {t.issuer && (
-                          <div className="text-xs text-zinc-500 truncate">
-                            {t.issuer}
-                          </div>
-                        )}
+              {trainings.map((t) => (
+                <li key={t.id} className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <div className="font-medium text-zinc-100 truncate">
+                        {t.name}
                       </div>
-                      <StatusBadge status={status} />
+                      {t.issuer && (
+                        <div className="text-xs text-zinc-500 truncate">
+                          {t.issuer}
+                        </div>
+                      )}
                     </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-400">
+                    <DerivedStatus
+                      documentUrl={t.documentUrl}
+                      expiry={t.expiryDate}
+                    />
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-400">
+                    {t.issueDate && (
                       <div>
                         <span className="text-zinc-600">Issued:</span>{" "}
                         {formatDate(t.issueDate)}
                       </div>
+                    )}
+                    {t.expiryDate && (
                       <div>
                         <span className="text-zinc-600">Expires:</span>{" "}
                         {formatDate(t.expiryDate)}
                       </div>
+                    )}
+                  </div>
+                  {t.documentUrl && (
+                    <div className="mt-2">
+                      <DocLink url={t.documentUrl} label="View certificate" />
                     </div>
-                  </li>
-                );
-              })}
+                  )}
+                </li>
+              ))}
             </ul>
-          )}
-        </Section>
+          </Section>
+        )}
 
         {/* Footer */}
         <div className="text-center text-xs text-zinc-600 pt-4 pb-8">
@@ -183,6 +235,60 @@ export default async function PublicProfile({ params }: { params: Params }) {
         </div>
       </div>
     </main>
+  );
+}
+
+function PermitRow({
+  label,
+  number,
+  weapon,
+  issueDate,
+  expiryDate,
+  documentUrl,
+}: {
+  label: string;
+  number: string | null;
+  weapon: string | null;
+  issueDate: Date | null;
+  expiryDate: Date | null;
+  documentUrl: string | null;
+}) {
+  return (
+    <div className="px-4 py-3 border-b border-white/5 last:border-0">
+      <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+        <div className="font-medium text-zinc-100">{label}</div>
+        <DerivedStatus documentUrl={documentUrl} expiry={expiryDate} />
+      </div>
+      <div className="grid grid-cols-2 gap-y-2 gap-x-3 text-xs text-zinc-400">
+        {number && (
+          <div>
+            <span className="text-zinc-600">Permit No.</span>{" "}
+            <span className="font-mono text-zinc-200">{number}</span>
+          </div>
+        )}
+        {weapon && (
+          <div>
+            <span className="text-zinc-600">Weapon No.</span>{" "}
+            <span className="font-mono text-zinc-200">{weapon}</span>
+          </div>
+        )}
+        {issueDate && (
+          <div>
+            <span className="text-zinc-600">Issued:</span> {formatDate(issueDate)}
+          </div>
+        )}
+        {expiryDate && (
+          <div>
+            <span className="text-zinc-600">Expires:</span> {formatDate(expiryDate)}
+          </div>
+        )}
+      </div>
+      {documentUrl && (
+        <div className="mt-2">
+          <DocLink url={documentUrl} label="View permit document" />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -220,38 +326,37 @@ function DateWithBadge({ date }: { date: Date | null | undefined }) {
   );
 }
 
-function PermitRow({
-  label,
-  active,
-  number,
-  issueDate,
-  expiryDate,
+// Active when a document is on file AND it hasn't expired (if an expiry was given).
+function DerivedStatus({
+  documentUrl,
+  expiry,
 }: {
-  label: string;
-  active: boolean;
-  number: string | null;
-  issueDate: Date | null;
-  expiryDate: Date | null;
+  documentUrl: string | null;
+  expiry: Date | null;
 }) {
-  const status = !active ? "inactive" : expiryStatus(expiryDate);
+  if (!documentUrl) {
+    return <StatusBadge status="none" label="Document missing" />;
+  }
+  if (expiry && isExpired(expiry)) {
+    return <StatusBadge status="expired" />;
+  }
+  if (expiry) {
+    const s = expiryStatus(expiry);
+    if (s === "soon") return <StatusBadge status="soon" />;
+  }
+  return <StatusBadge status="active" />;
+}
+
+function DocLink({ url, label }: { url: string; label: string }) {
   return (
-    <div className="px-4 py-3 border-b border-white/5 last:border-0">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="font-medium text-zinc-100">{label}</div>
-        <StatusBadge status={status} />
-      </div>
-      <div className="grid grid-cols-3 gap-2 text-xs text-zinc-400">
-        <div>
-          <span className="text-zinc-600">No.</span>{" "}
-          <span className="font-mono text-zinc-200">{number ?? "—"}</span>
-        </div>
-        <div>
-          <span className="text-zinc-600">Issued:</span> {formatDate(issueDate)}
-        </div>
-        <div>
-          <span className="text-zinc-600">Expires:</span> {formatDate(expiryDate)}
-        </div>
-      </div>
-    </div>
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener"
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-xs font-medium hover:bg-[#c9a56a]/20"
+    >
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      {label}
+    </a>
   );
 }
