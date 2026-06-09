@@ -10,9 +10,6 @@ datasource db {
 }
 
 // ─── Users / Roles ────────────────────────────────────────────────────────
-// role: "admin"     → full access to CRM
-// role: "operator"  → can scan guard QRs at its assigned location only
-//                     (and is logged on every scan)
 
 model User {
   id        String   @id @default(cuid())
@@ -22,22 +19,65 @@ model User {
   role      String   @default("admin") // "admin" | "operator"
   createdAt DateTime @default(now())
 
+  // Force password change on next sign-in.
+  mustChangePassword Boolean @default(false)
+
+  // 2FA / TOTP.
+  totpSecret     String?
+  totpEnabled    Boolean   @default(false)
+  totpEnrolledAt DateTime?
+
+  // Account lockout (admin unlocks by clearing lockedAt).
+  lockedAt   DateTime?
+  lockReason String?
+
   // Operators are bound to one Location.
   locationId String?
   location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
 
-  scanLogs ScanLog[]
+  scanLogs  ScanLog[]
+  auditLogs AdminAuditLog[]
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  at        DateTime @default(now())
+  ipAddress String
+  email     String?
+  succeeded Boolean  @default(false)
+
+  @@index([ipAddress, at])
+  @@index([at])
+}
+
+model AdminAuditLog {
+  id String @id @default(cuid())
+  at DateTime @default(now())
+
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  action     String // "guard.create" | "guard.update" | …
+  entityType String
+  entityId   String?
+  summary    String?
+  changes    Json?
+
+  ipAddress String?
+  userAgent String?
+
+  @@index([at])
+  @@index([actorId, at])
+  @@index([entityType, entityId])
 }
 
 // ─── Locations ────────────────────────────────────────────────────────────
-// type: "site"   → routine check-in / verification scan
-// type: "armory" → weapon issue/return; scan also captures weapon serial
 
 model Location {
   id        String   @id @default(cuid())
   name      String
-  code      String?  @unique // optional short code e.g. HIC-01
-  type      String   @default("site") // "site" | "armory"
+  code      String?  @unique
+  type      String   @default("site")
   notes     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -47,6 +87,7 @@ model Location {
 }
 
 // ─── Scan log ─────────────────────────────────────────────────────────────
+
 model ScanLog {
   id        String   @id @default(cuid())
   scannedAt DateTime @default(now())
@@ -54,21 +95,16 @@ model ScanLog {
   guardId String
   guard   Guard  @relation(fields: [guardId], references: [id], onDelete: Cascade)
 
-  // Operator who scanned (and admin if they pulled it up, but we only log
-  // operators in practice).
   scannedById String
   scannedBy   User   @relation(fields: [scannedById], references: [id], onDelete: Cascade)
 
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  // Type derived from location.type at log time, so reports stay correct
-  // even if a location is later reclassified.
-  scanType String // "verification" | "armory_out"
+  scanType String
 
-  // Armory-specific
-  weaponSerial String? // serial number entered by armory operator
-  permitContext String? // "permit1" or "permit2" — which permit was matched
+  weaponSerial  String?
+  permitContext String?
 
   ipAddress String?
   userAgent String?
@@ -79,7 +115,7 @@ model ScanLog {
   @@index([guardId, scannedAt])
 }
 
-// ─── Guards / Trainings (unchanged) ───────────────────────────────────────
+// ─── Guards / Trainings ───────────────────────────────────────────────────
 
 model Guard {
   id         String  @id @default(cuid())
@@ -91,10 +127,9 @@ model Guard {
   jobTitle  String
   photoUrl  String?
 
-  status String @default("active") // active | inactive
+  status String @default("active")
 
-  // Permit 1 — Hand guns
-  permit1Active       Boolean   @default(false) // legacy
+  permit1Active       Boolean   @default(false)
   permit1Number       String?
   permit1WeaponNumber String?
   permit1Make         String?
@@ -104,8 +139,7 @@ model Guard {
   permit1ExpiryDate   DateTime?
   permit1DocumentUrl  String?
 
-  // Permit 2 — Rifles
-  permit2Active       Boolean   @default(false) // legacy
+  permit2Active       Boolean   @default(false)
   permit2Number       String?
   permit2WeaponNumber String?
   permit2Make         String?
@@ -115,24 +149,27 @@ model Guard {
   permit2ExpiryDate   DateTime?
   permit2DocumentUrl  String?
 
-  // Visa permit
-  visaStatus      String    @default("inactive") // legacy
+  visaStatus      String    @default("inactive")
   visaNumber      String?
   visaIssueDate   DateTime?
   visaExpiryDate  DateTime?
   visaDocumentUrl String?
 
-  // Medical clearance
   medicalClearanceDate DateTime?
   medicalExpiryDate    DateTime?
   medicalDocumentUrl   String?
 
   notes String?
 
+  // Soft delete — restorable from /admin/trash for 30 days.
+  deletedAt DateTime?
+
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   trainings Training[]
   scanLogs  ScanLog[]
+
+  @@index([deletedAt])
 }
 
 model Training {
@@ -144,7 +181,7 @@ model Training {
   issuer      String?
   issueDate   DateTime?
   expiryDate  DateTime?
-  active      Boolean   @default(true) // legacy
+  active      Boolean   @default(true)
   documentUrl String?
 
   createdAt DateTime @default(now())

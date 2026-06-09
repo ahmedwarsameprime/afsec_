@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { logAdminAction } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,12 @@ export default function NewLocationPage() {
 
     const created = await prisma.location.create({
       data: { name, code, type, notes },
+    });
+    await logAdminAction({
+      action: "location.create",
+      entityType: "location",
+      entityId: created.id,
+      summary: `Created ${type} '${name}'${code ? ` (${code})` : ""}`,
     });
     redirect(`/admin/locations/${created.id}`);
   }

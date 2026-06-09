@@ -2,11 +2,13 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { formatDate, expiryStatus } from "@/lib/dates";
 import { StatusBadge } from "@/components/StatusBadge";
+import { proxiedFileUrl } from "@/lib/file-url";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboard() {
   const guards = await prisma.guard.findMany({
+    where: { deletedAt: null },
     orderBy: { updatedAt: "desc" },
     include: { _count: { select: { trainings: true } } },
   });
@@ -74,7 +76,7 @@ export default async function AdminDashboard() {
                       {g.photoUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={g.photoUrl}
+                          src={proxiedFileUrl(g.photoUrl) ?? ""}
                           alt=""
                           className="w-full h-full object-cover"
                         />
@@ -138,7 +140,7 @@ export default async function AdminDashboard() {
                           <div className="w-9 h-9 rounded-full bg-zinc-800 overflow-hidden flex items-center justify-center text-zinc-600">
                             {g.photoUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={g.photoUrl} alt="" className="w-full h-full object-cover" />
+                              <img src={proxiedFileUrl(g.photoUrl) ?? ""} alt="" className="w-full h-full object-cover" />
                             ) : (
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                 <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />

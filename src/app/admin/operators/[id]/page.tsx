@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { logAdminAction } from "@/lib/audit";
 
 type Params = Promise<{ id: string }>;
 export const dynamic = "force-dynamic";
@@ -26,17 +27,59 @@ export default async function OperatorEditPage({ params }: { params: Params }) {
     const newPassword = String(formData.get("newPassword") ?? "");
 
     const data: Record<string, unknown> = { name, locationId };
-    if (newPassword && newPassword.length >= 8) {
+    const passwordReset = newPassword && newPassword.length >= 8;
+    if (passwordReset) {
       data.password = await bcrypt.hash(newPassword, 12);
+      data.mustChangePassword = true;
     }
     await prisma.user.update({ where: { id }, data });
+    await logAdminAction({
+      action: passwordReset ? "operator.password_reset" : "operator.update",
+      entityType: "operator",
+      entityId: id,
+      summary: passwordReset ? `Password reset for ${user!.email}` : `Updated operator ${user!.email}`,
+    });
     revalidatePath("/admin/operators");
+    revalidatePath(`/admin/operators/${id}`);
+  }
+
+  async function unlock() {
+    "use server";
+    await prisma.user.update({ where: { id }, data: { lockedAt: null, lockReason: null } });
+    await logAdminAction({
+      action: "operator.update",
+      entityType: "operator",
+      entityId: id,
+      summary: `Unlocked account ${user!.email}`,
+    });
+    revalidatePath(`/admin/operators/${id}`);
+  }
+
+  async function disable2fa() {
+    "use server";
+    await prisma.user.update({
+      where: { id },
+      data: { totpEnabled: false, totpSecret: null, totpEnrolledAt: null },
+    });
+    await logAdminAction({
+      action: "operator.update",
+      entityType: "operator",
+      entityId: id,
+      summary: `Disabled 2FA for ${user!.email} (operator lost device)`,
+    });
     revalidatePath(`/admin/operators/${id}`);
   }
 
   async function remove() {
     "use server";
+    const target = await prisma.user.findUnique({ where: { id } });
     await prisma.user.delete({ where: { id } });
+    await logAdminAction({
+      action: "operator.delete",
+      entityType: "operator",
+      entityId: id,
+      summary: target ? `Deleted operator ${target.email}` : `Deleted operator ${id}`,
+    });
     redirect("/admin/operators");
   }
 
@@ -94,6 +137,57 @@ export default async function OperatorEditPage({ params }: { params: Params }) {
       <div className="text-xs text-zinc-500">
         {user._count.scanLogs} scan{user._count.scanLogs === 1 ? "" : "s"} recorded under this operator.
       </div>
+
+      <section className="bg-[#141414] border border-white/10 rounded-2xl p-5 space-y-4">
+        <h2 className="text-xs uppercase tracking-wider text-[#c9a56a] font-semibold">Security</h2>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-sm text-white">
+              Account status:{" "}
+              {user.lockedAt
+                ? <span className="text-red-300 font-semibold">LOCKED</span>
+                : <span className="text-emerald-300">Active</span>}
+            </div>
+            {user.lockedAt && (
+              <div className="text-xs text-zinc-500 mt-1">
+                Locked {user.lockedAt.toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                {user.lockReason ? ` — ${user.lockReason}` : ""}
+              </div>
+            )}
+          </div>
+          {user.lockedAt && (
+            <form action={unlock}>
+              <button type="submit"
+                className="text-sm font-medium px-3 py-1.5 rounded-md border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10">
+                Unlock account
+              </button>
+            </form>
+          )}
+        </div>
+        <div className="flex items-start justify-between gap-3 flex-wrap pt-3 border-t border-white/5">
+          <div>
+            <div className="text-sm text-white">
+              Two-factor:{" "}
+              {user.totpEnabled
+                ? <span className="text-emerald-300 font-semibold">ENABLED</span>
+                : <span className="text-zinc-400">Not set up</span>}
+            </div>
+            {user.totpEnrolledAt && (
+              <div className="text-xs text-zinc-500 mt-1">
+                Enrolled {user.totpEnrolledAt.toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+              </div>
+            )}
+          </div>
+          {user.totpEnabled && (
+            <form action={disable2fa}>
+              <button type="submit"
+                className="text-sm font-medium px-3 py-1.5 rounded-md border border-amber-500/40 text-amber-300 hover:bg-amber-500/10">
+                Reset 2FA
+              </button>
+            </form>
+          )}
+        </div>
+      </section>
 
       <section className="bg-[#141414] rounded-2xl border border-red-500/30 overflow-hidden">
         <div className="px-4 py-3 border-b border-white/5">

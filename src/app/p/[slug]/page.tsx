@@ -7,6 +7,7 @@ import { auth } from "@/auth";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { ArmoryFlow } from "./ArmoryFlow";
+import { proxiedFileUrl } from "@/lib/file-url";
 
 type Params = Promise<{ slug: string }>;
 
@@ -312,7 +313,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
                 {guard.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={guard.photoUrl}
+                    src={proxiedFileUrl(guard.photoUrl) ?? ""}
                     alt={fullName}
                     className="w-full h-full object-cover"
                   />
@@ -641,7 +642,7 @@ function ActiveBadge({
 function DocLink({ url, label }: { url: string; label: string }) {
   return (
     <a
-      href={url}
+      href={proxiedFileUrl(url) ?? url}
       target="_blank"
       rel="noopener"
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-xs font-medium hover:bg-[#c9a56a]/20"

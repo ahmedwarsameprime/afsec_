@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
+import { logAdminAction } from "@/lib/audit";
 
 type SearchParams = Promise<{ locationId?: string }>;
 
@@ -42,7 +43,15 @@ export default async function NewOperatorPage({
         name,
         role: "operator",
         locationId,
+        mustChangePassword: true,
       },
+    });
+    const loc = await prisma.location.findUnique({ where: { id: locationId } });
+    await logAdminAction({
+      action: "operator.create",
+      entityType: "operator",
+      entityId: user.id,
+      summary: `Created operator ${email} bound to ${loc?.name ?? "?"} (${loc?.type ?? "?"})`,
     });
     redirect(`/admin/operators/${user.id}`);
   }

@@ -5,6 +5,8 @@ import { dateInputValue } from "@/lib/dates";
 import { saveUpload, deleteUpload } from "@/lib/storage";
 import { revalidatePath } from "next/cache";
 import { TrainingEditor } from "./TrainingEditor";
+import { logAdminAction, diffFields } from "@/lib/audit";
+import { proxiedFileUrl } from "@/lib/file-url";
 
 type Params = Promise<{ id: string }>;
 
@@ -39,7 +41,7 @@ export default async function EditGuardPage({ params }: { params: Params }) {
     where: { id },
     include: { trainings: { orderBy: { createdAt: "desc" } } },
   });
-  if (!guard) notFound();
+  if (!guard || guard.deletedAt) notFound();
 
   async function save(formData: FormData) {
     "use server";
@@ -85,7 +87,8 @@ export default async function EditGuardPage({ params }: { params: Params }) {
       }
     }
 
-    await prisma.guard.update({
+    const before = guard!;
+    const updated = await prisma.guard.update({
       where: { id },
       data: {
         firstName: toStr(formData.get("firstName")),
@@ -123,6 +126,29 @@ export default async function EditGuardPage({ params }: { params: Params }) {
       },
     });
 
+    const auditFields = [
+      "firstName","lastName","jobTitle","employeeId","status",
+      "permit1Number","permit1WeaponNumber","permit1Make","permit1Model","permit1Clips","permit1ExpiryDate",
+      "permit2Number","permit2WeaponNumber","permit2Make","permit2Model","permit2Clips","permit2ExpiryDate",
+      "visaNumber","visaExpiryDate","medicalExpiryDate",
+    ] as const;
+    const changed = diffFields(
+      before as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      [...auditFields] as unknown as (keyof Record<string, unknown>)[]
+    );
+    const isStatusFlip =
+      changed && Object.prototype.hasOwnProperty.call(changed, "status");
+    await logAdminAction({
+      action: isStatusFlip ? "guard.status_change" : "guard.update",
+      entityType: "guard",
+      entityId: id,
+      summary: isStatusFlip
+        ? `Status ${changed!.status![0]} → ${changed!.status![1]} for ${updated.firstName} ${updated.lastName}`
+        : `Updated profile of ${updated.firstName} ${updated.lastName}`,
+      changes: changed ? (JSON.parse(JSON.stringify(changed)) as Record<string, unknown>) : undefined,
+    });
+
     revalidatePath(`/admin/${id}`);
     revalidatePath("/admin");
     revalidatePath(`/p/${guard!.slug}`);
@@ -130,26 +156,17 @@ export default async function EditGuardPage({ params }: { params: Params }) {
 
   async function remove() {
     "use server";
-    const g = await prisma.guard.findUnique({
-      where: { id },
-      select: {
-        photoUrl: true,
-        permit1DocumentUrl: true,
-        permit2DocumentUrl: true,
-        visaDocumentUrl: true,
-        medicalDocumentUrl: true,
-        trainings: { select: { documentUrl: true } },
-      },
+    // Soft delete — restorable from /admin/trash for 30 days.
+    const target = await prisma.guard.findUnique({ where: { id } });
+    await prisma.guard.update({ where: { id }, data: { deletedAt: new Date() } });
+    await logAdminAction({
+      action: "guard.delete",
+      entityType: "guard",
+      entityId: id,
+      summary: target
+        ? `Soft-deleted ${target.firstName} ${target.lastName} (restorable for 30 days)`
+        : `Soft-deleted guard ${id}`,
     });
-    if (g) {
-      await deleteUpload(g.photoUrl);
-      await deleteUpload(g.permit1DocumentUrl);
-      await deleteUpload(g.permit2DocumentUrl);
-      await deleteUpload(g.visaDocumentUrl);
-      await deleteUpload(g.medicalDocumentUrl);
-      for (const t of g.trainings) await deleteUpload(t.documentUrl);
-    }
-    await prisma.guard.delete({ where: { id } });
     redirect("/admin");
   }
 
@@ -224,7 +241,7 @@ export default async function EditGuardPage({ params }: { params: Params }) {
                 {guard.photoUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={guard.photoUrl}
+                    src={proxiedFileUrl(guard.photoUrl) ?? ""}
                     alt=""
                     className="w-12 h-12 rounded-md object-cover border border-white/10"
                   />
@@ -466,7 +483,7 @@ function DocumentField({
       <div className="flex items-center gap-3 flex-wrap">
         {existingUrl && (
           <a
-            href={existingUrl}
+            href={proxiedFileUrl(existingUrl) ?? existingUrl}
             target="_blank"
             rel="noopener"
             className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md bg-[#c9a56a]/10 border border-[#c9a56a]/40 text-[#c9a56a] text-sm hover:bg-[#c9a56a]/20"

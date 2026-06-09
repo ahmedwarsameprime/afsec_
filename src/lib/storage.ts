@@ -1,15 +1,21 @@
-// File storage abstraction.
-// - On Vercel (BLOB_READ_WRITE_TOKEN present) → Vercel Blob.
-// - Locally → /public/uploads/ on disk.
-//
-// Production deploys must have BLOB_READ_WRITE_TOKEN set (auto-injected
-// when the project has a Vercel Blob store attached).
-
+// File storage with content-aware validation + EXIF stripping.
 import path from "path";
 import { mkdir, writeFile, unlink } from "fs/promises";
+import { fileTypeFromBuffer } from "file-type";
+import sharp from "sharp";
 
 const useBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 const onVercel = Boolean(process.env.VERCEL);
+
+const ALLOWED: Record<string, string[]> = {
+  jpg: ["image/jpeg"],
+  jpeg: ["image/jpeg"],
+  png: ["image/png"],
+  webp: ["image/webp"],
+  pdf: ["application/pdf"],
+};
+
+const IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp"];
 
 export async function saveUpload(
   file: File,
@@ -18,44 +24,73 @@ export async function saveUpload(
 ): Promise<string | undefined> {
   if (!file || file.size === 0) return undefined;
   if (file.size > 10_000_000) {
-    console.warn(
-      `[storage] rejected upload "${file.name}" (${file.size} bytes) — over 10 MB cap`
-    );
-    return undefined;
-  }
-  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
-  if (!allowedExts.includes(ext)) {
-    console.warn(
-      `[storage] rejected upload "${file.name}" — extension ".${ext}" not in [${allowedExts.join(", ")}]`
-    );
+    console.warn(`[storage] rejected ${file.name} (${file.size} bytes) — over 10 MB cap`);
     return undefined;
   }
 
-  const safeName = `${prefix}-${Date.now()}.${ext}`;
-  const buf = Buffer.from(await file.arrayBuffer());
+  let buf = Buffer.from(await file.arrayBuffer());
+
+  // Detect real type from magic bytes — never trust file.name.
+  const detected = await fileTypeFromBuffer(buf);
+  if (!detected) {
+    console.warn(`[storage] rejected ${file.name} — could not detect file type`);
+    return undefined;
+  }
+
+  const allowedMimes = new Set(
+    allowedExts.flatMap((e) => ALLOWED[e.toLowerCase()] ?? [])
+  );
+  if (!allowedMimes.has(detected.mime)) {
+    console.warn(`[storage] rejected ${file.name} — detected ${detected.mime} not allowed`);
+    return undefined;
+  }
+
+  let finalExt = detected.ext;
+  let contentType = detected.mime;
+
+  // Re-encode images through sharp to drop EXIF (incl. GPS).
+  if (IMAGE_MIMES.includes(detected.mime)) {
+    try {
+      const img = sharp(buf, { failOn: "truncated" }).rotate();
+      if (detected.mime === "image/png") {
+        buf = Buffer.from(await img.png().toBuffer());
+        finalExt = "png";
+      } else if (detected.mime === "image/webp") {
+        buf = Buffer.from(await img.webp({ quality: 88 }).toBuffer());
+        finalExt = "webp";
+      } else {
+        buf = Buffer.from(await img.jpeg({ quality: 88, mozjpeg: true }).toBuffer());
+        finalExt = "jpg";
+        contentType = "image/jpeg";
+      }
+    } catch (err) {
+      console.error("[storage] image re-encode failed:", err);
+      return undefined;
+    }
+  }
+
+  const safeName = `${prefix}-${Date.now()}.${finalExt}`;
 
   if (useBlob) {
     try {
       const { put } = await import("@vercel/blob");
       const blob = await put(`uploads/${safeName}`, buf, {
         access: "public",
-        contentType: file.type || undefined,
+        contentType,
         addRandomSuffix: false,
       });
-      console.log(`[storage] uploaded to Blob: ${blob.url}`);
       return blob.url;
     } catch (err) {
-      console.error("[storage] Vercel Blob put() failed:", err);
+      console.error("[storage] Blob put failed:", err);
       throw new Error(
         `Upload failed: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }
 
-  // No Blob token: refuse to silently fail on Vercel.
   if (onVercel) {
     throw new Error(
-      "File storage is not configured. Attach a Vercel Blob store to this project so BLOB_READ_WRITE_TOKEN is injected."
+      "File storage is not configured. Attach a Vercel Blob store so BLOB_READ_WRITE_TOKEN is injected."
     );
   }
 

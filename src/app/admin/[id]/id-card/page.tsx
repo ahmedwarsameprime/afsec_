@@ -7,24 +7,45 @@ import { formatDate } from "@/lib/dates";
 import { PrintButton } from "./PrintButton";
 
 type Params = Promise<{ id: string }>;
-
 export const dynamic = "force-dynamic";
+
+// Inline the photo as a data URL so it survives print/save-as-PDF.
+async function fetchPhotoDataUrl(rawUrl: string | null): Promise<string | null> {
+  if (!rawUrl) return null;
+  if (rawUrl.startsWith("/uploads/")) return rawUrl;
+  try {
+    const res = await fetch(rawUrl, {
+      headers: process.env.BLOB_READ_WRITE_TOKEN
+        ? { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` }
+        : {},
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") ?? "image/jpeg";
+    const buf = Buffer.from(await res.arrayBuffer());
+    return `data:${ct};base64,${buf.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
 
 export default async function IdCardPage({ params }: { params: Params }) {
   const { id } = await params;
   const guard = await prisma.guard.findUnique({ where: { id } });
   if (!guard) notFound();
 
-  const baseUrl =
-    process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
   const profileUrl = `${baseUrl}/p/${guard.slug}`;
 
-  const qrDataUrl = await QRCode.toDataURL(profileUrl, {
-    margin: 1,
-    width: 480,
-    color: { dark: "#0a0a0a", light: "#ffffff" },
-    errorCorrectionLevel: "H",
-  });
+  const [qrDataUrl, photoDataUrl] = await Promise.all([
+    QRCode.toDataURL(profileUrl, {
+      margin: 1,
+      width: 480,
+      color: { dark: "#0a0a0a", light: "#ffffff" },
+      errorCorrectionLevel: "H",
+    }),
+    fetchPhotoDataUrl(guard.photoUrl),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -87,10 +108,10 @@ export default async function IdCardPage({ params }: { params: Params }) {
           {/* Photo */}
           <div className="flex justify-center -mt-12">
             <div className="w-28 h-28 rounded-2xl border-4 border-white bg-zinc-100 overflow-hidden shadow-xl flex items-center justify-center text-zinc-400">
-              {guard.photoUrl ? (
+              {photoDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={guard.photoUrl}
+                  src={photoDataUrl}
                   alt=""
                   className="w-full h-full object-cover"
                 />

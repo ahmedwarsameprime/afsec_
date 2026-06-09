@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { generateSlug } from "@/lib/slug";
+import { logAdminAction } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,12 @@ export default function NewGuardPage() {
         jobTitle,
         employeeId: employeeId || null,
       },
+    });
+    await logAdminAction({
+      action: "guard.create",
+      entityType: "guard",
+      entityId: guard.id,
+      summary: `Created ${firstName} ${lastName} — ${jobTitle}`,
     });
     redirect(`/admin/${guard.id}`);
   }
