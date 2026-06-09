@@ -9,7 +9,6 @@ import { PrintButton } from "./PrintButton";
 type Params = Promise<{ id: string }>;
 export const dynamic = "force-dynamic";
 
-// Inline the photo as a data URL so it survives print/save-as-PDF.
 async function fetchPhotoDataUrl(rawUrl: string | null): Promise<string | null> {
   if (!rawUrl) return null;
   if (rawUrl.startsWith("/uploads/")) return rawUrl;
@@ -27,6 +26,26 @@ async function fetchPhotoDataUrl(rawUrl: string | null): Promise<string | null> 
   } catch {
     return null;
   }
+}
+
+function permitHasData(args: {
+  number: string | null;
+  weapon: string | null;
+  make: string | null;
+  model: string | null;
+  clips: number | null;
+  expiry: Date | null;
+  documentUrl: string | null;
+}): boolean {
+  return Boolean(
+    args.number ||
+      args.weapon ||
+      args.make ||
+      args.model ||
+      args.clips !== null ||
+      args.expiry ||
+      args.documentUrl
+  );
 }
 
 export default async function IdCardPage({ params }: { params: Params }) {
@@ -47,6 +66,36 @@ export default async function IdCardPage({ params }: { params: Params }) {
     fetchPhotoDataUrl(guard.photoUrl),
   ]);
 
+  // Only show permits that have at least one filled field.
+  const permits = [
+    {
+      label: "P1 Hand Guns",
+      hasData: permitHasData({
+        number: guard.permit1Number,
+        weapon: guard.permit1WeaponNumber,
+        make: guard.permit1Make,
+        model: guard.permit1Model,
+        clips: guard.permit1Clips,
+        expiry: guard.permit1ExpiryDate,
+        documentUrl: guard.permit1DocumentUrl,
+      }),
+      expiry: guard.permit1ExpiryDate,
+    },
+    {
+      label: "P2 Rifles",
+      hasData: permitHasData({
+        number: guard.permit2Number,
+        weapon: guard.permit2WeaponNumber,
+        make: guard.permit2Make,
+        model: guard.permit2Model,
+        clips: guard.permit2Clips,
+        expiry: guard.permit2ExpiryDate,
+        documentUrl: guard.permit2DocumentUrl,
+      }),
+      expiry: guard.permit2ExpiryDate,
+    },
+  ].filter((p) => p.hasData);
+
   return (
     <div className="space-y-6">
       <div className="no-print">
@@ -65,7 +114,6 @@ export default async function IdCardPage({ params }: { params: Params }) {
         </p>
       </div>
 
-      {/* Action bar */}
       <div className="no-print grid grid-cols-1 sm:flex sm:flex-wrap gap-2">
         <PrintButton />
         <a
@@ -94,20 +142,20 @@ export default async function IdCardPage({ params }: { params: Params }) {
           className="print-card relative w-full max-w-[340px] aspect-[340/540] rounded-2xl overflow-hidden shadow-2xl bg-white text-black border border-zinc-300"
           id="id-card"
         >
-          {/* Top band */}
-          <div className="h-24 bg-gradient-to-r from-[#0a0a0a] via-[#1c1c1c] to-[#0a0a0a] relative">
+          {/* Top band — slimmer so the photo can sit lower & larger */}
+          <div className="h-14 bg-gradient-to-r from-[#0a0a0a] via-[#1c1c1c] to-[#0a0a0a] relative">
             <div className="absolute inset-0 flex items-center justify-between px-4">
-              <Logo size={28} variant="light" />
-              <div className="text-[9px] uppercase tracking-widest text-[#c9a56a] font-bold">
+              <Logo size={22} variant="light" />
+              <div className="text-[8px] uppercase tracking-widest text-[#c9a56a] font-bold">
                 Security Officer ID
               </div>
             </div>
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#c9a56a]" />
           </div>
 
-          {/* Photo */}
-          <div className="flex justify-center -mt-12">
-            <div className="w-28 h-28 rounded-2xl border-4 border-white bg-zinc-100 overflow-hidden shadow-xl flex items-center justify-center text-zinc-400">
+          {/* Photo — larger and fully visible below the band */}
+          <div className="flex justify-center mt-5">
+            <div className="w-36 h-36 rounded-2xl border-4 border-white bg-zinc-100 overflow-hidden shadow-xl flex items-center justify-center text-zinc-400 ring-2 ring-[#c9a56a]/30">
               {photoDataUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -116,8 +164,9 @@ export default async function IdCardPage({ params }: { params: Params }) {
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <circle cx="12" cy="8" r="4" /><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
                 </svg>
               )}
             </div>
@@ -138,21 +187,20 @@ export default async function IdCardPage({ params }: { params: Params }) {
             )}
           </div>
 
-          {/* Permit dots */}
-          <div className="px-6 mt-3">
-            <div className="grid grid-cols-2 gap-2 text-[9px]">
-              <PermitChip
-                label="P1 Hand Guns"
-                active={guard.permit1Active}
-                expiry={guard.permit1ExpiryDate}
-              />
-              <PermitChip
-                label="P2 Rifles"
-                active={guard.permit2Active}
-                expiry={guard.permit2ExpiryDate}
-              />
+          {/* Permits — only the ones with data */}
+          {permits.length > 0 && (
+            <div className="px-6 mt-3">
+              <div
+                className={`grid gap-2 text-[9px] ${
+                  permits.length === 1 ? "grid-cols-1" : "grid-cols-2"
+                }`}
+              >
+                {permits.map((p) => (
+                  <PermitChip key={p.label} label={p.label} expiry={p.expiry} />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* QR code */}
           <div className="flex justify-center mt-3">
@@ -161,8 +209,8 @@ export default async function IdCardPage({ params }: { params: Params }) {
               <img
                 src={qrDataUrl}
                 alt="Scan to verify"
-                width={140}
-                height={140}
+                width={120}
+                height={120}
               />
             </div>
           </div>
@@ -188,25 +236,29 @@ export default async function IdCardPage({ params }: { params: Params }) {
 
 function PermitChip({
   label,
-  active,
   expiry,
 }: {
   label: string;
-  active: boolean;
   expiry: Date | null;
 }) {
-  const isValid = active && expiry && expiry.getTime() > Date.now();
+  const isValid = expiry !== null && expiry.getTime() > Date.now();
   return (
     <div
       className={`px-2 py-1 rounded border text-[8px] uppercase tracking-wider font-semibold flex items-center justify-between ${
         isValid
           ? "bg-emerald-50 border-emerald-300 text-emerald-700"
-          : "bg-zinc-50 border-zinc-300 text-zinc-500"
+          : expiry
+            ? "bg-red-50 border-red-300 text-red-700"
+            : "bg-zinc-50 border-zinc-300 text-zinc-500"
       }`}
     >
       <span>{label}</span>
       <span>
-        {isValid ? `✓ ${formatDate(expiry)}` : active ? "Expired" : "N/A"}
+        {isValid
+          ? `✓ ${formatDate(expiry)}`
+          : expiry
+            ? "Expired"
+            : "Active"}
       </span>
     </div>
   );
