@@ -124,6 +124,38 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         session.user.locationId = t.locationId ?? null;
         session.user.locationName = t.locationName ?? null;
         session.user.locationType = t.locationType ?? null;
+
+        // Refresh security-critical flags from DB on every request.
+        // The stateless JWT can't know if an admin changed these since
+        // sign-in (mustChangePassword set, account locked, role demoted,
+        // etc.) — without this re-check, those changes wait until the
+        // 24h JWT expires.
+        if (session.user.id) {
+          try {
+            const fresh = await prisma.user.findUnique({
+              where: { id: session.user.id },
+              select: {
+                role: true,
+                mustChangePassword: true,
+                lockedAt: true,
+                locationId: true,
+                location: { select: { name: true, type: true } },
+              },
+            });
+            if (!fresh || fresh.lockedAt) {
+              // Locked or deleted → strip the session so proxy treats
+              // them as signed out.
+              return { ...session, user: undefined } as unknown as typeof session;
+            }
+            session.user.role = (fresh.role as "admin" | "operator") ?? session.user.role;
+            session.user.mustChangePassword = fresh.mustChangePassword;
+            session.user.locationId = fresh.locationId;
+            session.user.locationName = fresh.location?.name ?? null;
+            session.user.locationType = (fresh.location?.type as "site" | "armory" | null) ?? null;
+          } catch {
+            /* DB blip → fall back to JWT values */
+          }
+        }
       }
       return session;
     },
