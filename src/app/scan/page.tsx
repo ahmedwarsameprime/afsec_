@@ -114,9 +114,7 @@ export default async function ScanLandingPage() {
                         })}
                       </div>
                       <div className="text-[10px] uppercase tracking-wider text-zinc-500">
-                        {s.scanType === "armory_out"
-                          ? `Armory — ${s.weaponSerial ?? ""}`
-                          : "Verification"}
+                        {scanLabel(s.scanType, s.weaponSerial)}
                       </div>
                     </div>
                   </div>
@@ -132,4 +130,21 @@ export default async function ScanLandingPage() {
       </div>
     </main>
   );
+}
+
+function scanLabel(type: string, weaponSerial: string | null): string {
+  switch (type) {
+    case "site_in":
+      return "Entry";
+    case "site_out":
+      return "Exit";
+    case "verification":
+      return "Verification";
+    case "armory_out":
+      return weaponSerial ? `Weapon out — ${weaponSerial}` : "Weapon out";
+    case "armory_in":
+      return weaponSerial ? `Weapon in — ${weaponSerial}` : "Weapon in";
+    default:
+      return type;
+  }
 }

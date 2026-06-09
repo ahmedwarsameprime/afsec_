@@ -24,8 +24,22 @@ export default async function ScanLogsPage({
   // Build filters.
   const where: Record<string, unknown> = {};
   if (sp.location) where.locationId = sp.location;
-  if (sp.type === "verification" || sp.type === "armory_out") {
+  const VALID_TYPES = [
+    "site_in",
+    "site_out",
+    "armory_out",
+    "armory_in",
+    "verification", // legacy
+  ];
+  if (sp.type && VALID_TYPES.includes(sp.type)) {
     where.scanType = sp.type;
+  }
+  // Convenience group filters
+  if (sp.type === "site_any") {
+    where.scanType = { in: ["site_in", "site_out", "verification"] };
+  }
+  if (sp.type === "armory_any") {
+    where.scanType = { in: ["armory_out", "armory_in"] };
   }
   if (sp.from || sp.to) {
     const range: { gte?: Date; lte?: Date } = {};
@@ -115,8 +129,17 @@ export default async function ScanLogsPage({
             className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a56a]"
           >
             <option value="">All types</option>
-            <option value="verification">Verification</option>
-            <option value="armory_out">Armory issuance</option>
+            <optgroup label="Site">
+              <option value="site_any">Any site scan</option>
+              <option value="site_in">Entry</option>
+              <option value="site_out">Exit</option>
+              <option value="verification">Legacy verification</option>
+            </optgroup>
+            <optgroup label="Armory">
+              <option value="armory_any">Any armory scan</option>
+              <option value="armory_out">Weapon issued</option>
+              <option value="armory_in">Weapon returned</option>
+            </optgroup>
           </select>
         </FilterField>
         <FilterField label="From">
@@ -179,15 +202,7 @@ export default async function ScanLogsPage({
                       {l.guard.employeeId ?? "—"}
                     </div>
                   </div>
-                  <span
-                    className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${
-                      l.scanType === "armory_out"
-                        ? "bg-red-500/15 text-red-300"
-                        : "bg-emerald-500/15 text-emerald-300"
-                    }`}
-                  >
-                    {l.scanType === "armory_out" ? "Armory" : "Verify"}
-                  </span>
+                  <ScanTypeBadge type={l.scanType} />
                 </div>
                 <div className="mt-2 text-xs text-zinc-400 space-y-0.5">
                   <div>
@@ -253,15 +268,7 @@ export default async function ScanLogsPage({
                         {l.location.name}
                       </td>
                       <td className="px-4 py-2.5">
-                        <span
-                          className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${
-                            l.scanType === "armory_out"
-                              ? "bg-red-500/15 text-red-300"
-                              : "bg-emerald-500/15 text-emerald-300"
-                          }`}
-                        >
-                          {l.scanType === "armory_out" ? "Armory" : "Verify"}
-                        </span>
+                        <ScanTypeBadge type={l.scanType} />
                       </td>
                       <td className="px-4 py-2.5 text-xs font-mono text-zinc-300">
                         {l.weaponSerial ?? "—"}
@@ -295,5 +302,23 @@ function FilterField({
       </div>
       {children}
     </label>
+  );
+}
+
+function ScanTypeBadge({ type }: { type: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    site_in: { label: "Entry", cls: "bg-emerald-500/15 text-emerald-300" },
+    site_out: { label: "Exit", cls: "bg-sky-500/15 text-sky-300" },
+    verification: { label: "Verify", cls: "bg-emerald-500/15 text-emerald-300" },
+    armory_out: { label: "Weapon out", cls: "bg-red-500/15 text-red-300" },
+    armory_in: { label: "Weapon in", cls: "bg-sky-500/15 text-sky-300" },
+  };
+  const s = map[type] ?? { label: type, cls: "bg-zinc-500/15 text-zinc-300" };
+  return (
+    <span
+      className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded ${s.cls}`}
+    >
+      {s.label}
+    </span>
   );
 }

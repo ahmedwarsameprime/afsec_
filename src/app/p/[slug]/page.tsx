@@ -5,14 +5,14 @@ import { Logo } from "@/components/Logo";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { headers } from "next/headers";
-import { ArmoryIssuance } from "./ArmoryIssuance";
+import { ArmoryFlow } from "./ArmoryFlow";
 
 type Params = Promise<{ slug: string }>;
 
 export const dynamic = "force-dynamic";
 
-// "Active" iff there's an expiry in the future. Anything else (no expiry on
-// file, expired, no document) is treated as Inactive on the public profile.
+// "Active" iff there's an expiry in the future, OR a document on file
+// with no expiry. Otherwise (no data, expired) → Inactive.
 function isActive(args: {
   expiry?: Date | null | undefined;
   documentUrl?: string | null | undefined;
@@ -20,10 +20,11 @@ function isActive(args: {
   const { expiry, documentUrl } = args;
   if (!expiry && !documentUrl) return false;
   if (expiry && isExpired(expiry)) return false;
-  if (!expiry && !documentUrl) return false;
-  // Has expiry in future, OR has document with no expiry.
   return true;
 }
+
+const SITE_IN_TYPES = ["site_in", "verification"]; // legacy 'verification' = entry
+const SITE_OUT_TYPES = ["site_out"];
 
 export default async function PublicProfile({ params }: { params: Params }) {
   const { slug } = await params;
@@ -42,48 +43,99 @@ export default async function PublicProfile({ params }: { params: Params }) {
   const locationType = session.user.locationType;
   const locationName = session.user.locationName;
 
-  let scanLogged = false;
-  let mostRecentArmoryScan: {
-    weaponSerial: string | null;
-    permitContext: string | null;
-  } | null = null;
+  let sitePulse: { kind: "site_in" | "site_out"; when: Date } | null = null;
 
+  // Site operator → alternate Entry / Exit based on the last site scan
+  // for (guard, location).
   if (role === "operator" && locationId && locationType === "site") {
+    const last = await prisma.scanLog.findFirst({
+      where: {
+        guardId: guard.id,
+        locationId,
+        scanType: { in: [...SITE_IN_TYPES, ...SITE_OUT_TYPES] },
+      },
+      orderBy: { scannedAt: "desc" },
+    });
+
+    // If last was site_in (or legacy verification), this scan = site_out.
+    // Otherwise (no prior, or last was site_out), this scan = site_in.
+    const next: "site_in" | "site_out" =
+      last && SITE_IN_TYPES.includes(last.scanType) ? "site_out" : "site_in";
+
     const h = await headers();
-    await prisma.scanLog.create({
+    const created = await prisma.scanLog.create({
       data: {
         guardId: guard.id,
         scannedById: session.user.id,
         locationId,
-        scanType: "verification",
+        scanType: next,
         ipAddress: h.get("x-forwarded-for") ?? null,
         userAgent: h.get("user-agent") ?? null,
       },
     });
-    scanLogged = true;
+    sitePulse = { kind: next, when: created.scannedAt };
   }
 
+  // Armory operator → compute "open" issuances = armory_out for this guard
+  // at this armory whose weaponSerial hasn't been matched by a later armory_in.
+  type OpenIssuance = {
+    scanId: string;
+    weaponSerial: string;
+    permitContext: "permit1" | "permit2" | null;
+    scannedAt: Date;
+    make: string | null;
+    model: string | null;
+  };
+  let openIssuances: OpenIssuance[] = [];
+
   if (role === "operator" && locationId && locationType === "armory") {
-    const recent = await prisma.scanLog.findFirst({
+    // Get last 50 armory scans for this guard/location, oldest first.
+    const armoryScans = await prisma.scanLog.findMany({
       where: {
         guardId: guard.id,
         locationId,
-        scanType: "armory_out",
-        scannedAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
+        scanType: { in: ["armory_out", "armory_in"] },
       },
-      orderBy: { scannedAt: "desc" },
+      orderBy: { scannedAt: "asc" },
+      take: 100,
     });
-    if (recent) {
-      mostRecentArmoryScan = {
-        weaponSerial: recent.weaponSerial,
-        permitContext: recent.permitContext,
-      };
+
+    // Walk the list; maintain an open-issuances map keyed by weaponSerial.
+    const open = new Map<string, OpenIssuance>();
+    for (const s of armoryScans) {
+      if (!s.weaponSerial) continue;
+      const key = s.weaponSerial.toLowerCase();
+      if (s.scanType === "armory_out") {
+        open.set(key, {
+          scanId: s.id,
+          weaponSerial: s.weaponSerial,
+          permitContext:
+            s.permitContext === "permit1" || s.permitContext === "permit2"
+              ? s.permitContext
+              : null,
+          scannedAt: s.scannedAt,
+          make: null,
+          model: null,
+        });
+      } else if (s.scanType === "armory_in") {
+        open.delete(key);
+      }
     }
+
+    // Enrich with make/model from the guard's permit record.
+    openIssuances = [...open.values()].map((o) => {
+      if (o.permitContext === "permit1") {
+        return { ...o, make: guard.permit1Make, model: guard.permit1Model };
+      }
+      if (o.permitContext === "permit2") {
+        return { ...o, make: guard.permit2Make, model: guard.permit2Model };
+      }
+      return o;
+    });
   }
 
   const fullName = `${guard.firstName} ${guard.lastName}`;
 
-  // All permits — always show both; UI marks empty ones as Inactive.
   const permits = [
     {
       key: "permit1" as const,
@@ -111,7 +163,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
     },
   ];
 
-  // For the armory selector we still only offer permits that have a weapon to issue.
+  // Armory flow only offers permits that have a weapon defined.
   const issuablePermits = permits.filter(
     (p) => p.weapon || p.make || p.model
   );
@@ -135,9 +187,29 @@ export default async function PublicProfile({ params }: { params: Params }) {
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
-        {scanLogged && (
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl px-4 py-3 text-sm text-emerald-300">
-            ✓ Check-in logged at <strong>{locationName}</strong>.
+        {sitePulse && (
+          <div
+            className={`rounded-2xl px-4 py-3 text-sm border ${
+              sitePulse.kind === "site_in"
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
+                : "bg-sky-500/10 border-sky-500/30 text-sky-200"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-base">
+                {sitePulse.kind === "site_in" ? "→" : "←"}
+              </span>
+              <strong>
+                {sitePulse.kind === "site_in" ? "ENTRY logged" : "EXIT logged"}
+              </strong>{" "}
+              <span className="text-zinc-300">at {locationName}</span>
+            </div>
+            <div className="text-xs text-zinc-400 mt-1">
+              {sitePulse.when.toLocaleString("en-GB", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </div>
           </div>
         )}
 
@@ -178,7 +250,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
         {/* Armory workflow — only for armory operators */}
         {role === "operator" && locationType === "armory" && locationId && (
-          <ArmoryIssuance
+          <ArmoryFlow
             guardId={guard.id}
             guardName={fullName}
             locationId={locationId}
@@ -192,11 +264,18 @@ export default async function PublicProfile({ params }: { params: Params }) {
               clips: p.clips,
               expiryDate: p.expiryDate ? p.expiryDate.toISOString() : null,
             }))}
-            recentArmoryScan={mostRecentArmoryScan}
+            openIssuances={openIssuances.map((o) => ({
+              scanId: o.scanId,
+              weaponSerial: o.weaponSerial,
+              permitContext: o.permitContext,
+              issuedAt: o.scannedAt.toISOString(),
+              make: o.make,
+              model: o.model,
+            }))}
           />
         )}
 
-        {/* Weapon Permits — always show both */}
+        {/* Weapon Permits */}
         <Section title="Weapon Permits">
           {permits.map(({ key: _k, ...rest }) => (
             <PermitRow key={rest.label} {...rest} />
@@ -359,15 +438,13 @@ function PermitRow({
   expiryDate: Date | null;
   documentUrl: string | null;
 }) {
-  const hasAny =
-    number || weapon || make || model || clips !== null || issueDate || expiryDate || documentUrl;
   const hasWeapon = make || model || weapon || clips !== null;
 
   return (
     <div className="px-4 py-3 border-b border-white/5 last:border-0">
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="font-medium text-zinc-100">{label}</div>
-        <ActiveBadge expiry={expiryDate} documentUrl={documentUrl ?? (hasAny ? "" : null)} />
+        <ActiveBadge expiry={expiryDate} documentUrl={documentUrl} />
       </div>
 
       {hasWeapon && (
@@ -447,7 +524,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-// Single source of truth for the "Active vs Inactive" label on the profile.
 function ActiveBadge({
   expiry,
   documentUrl,
