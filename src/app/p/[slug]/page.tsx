@@ -43,37 +43,56 @@ export default async function PublicProfile({ params }: { params: Params }) {
   const locationType = session.user.locationType;
   const locationName = session.user.locationName;
 
-  let sitePulse: { kind: "site_in" | "site_out"; when: Date } | null = null;
+  const guardInactive = guard.status !== "active";
 
-  // Site operator → alternate Entry / Exit based on the last site scan
-  // for (guard, location).
+  let sitePulse:
+    | { kind: "site_in" | "site_out"; when: Date }
+    | { kind: "entry_denied"; when: Date }
+    | null = null;
+
+  // Site operator
   if (role === "operator" && locationId && locationType === "site") {
-    const last = await prisma.scanLog.findFirst({
-      where: {
-        guardId: guard.id,
-        locationId,
-        scanType: { in: [...SITE_IN_TYPES, ...SITE_OUT_TYPES] },
-      },
-      orderBy: { scannedAt: "desc" },
-    });
-
-    // If last was site_in (or legacy verification), this scan = site_out.
-    // Otherwise (no prior, or last was site_out), this scan = site_in.
-    const next: "site_in" | "site_out" =
-      last && SITE_IN_TYPES.includes(last.scanType) ? "site_out" : "site_in";
-
     const h = await headers();
-    const created = await prisma.scanLog.create({
-      data: {
-        guardId: guard.id,
-        scannedById: session.user.id,
-        locationId,
-        scanType: next,
-        ipAddress: h.get("x-forwarded-for") ?? null,
-        userAgent: h.get("user-agent") ?? null,
-      },
-    });
-    sitePulse = { kind: next, when: created.scannedAt };
+
+    if (guardInactive) {
+      // DENIED — log and stop. Do not advance the in/out toggle.
+      const created = await prisma.scanLog.create({
+        data: {
+          guardId: guard.id,
+          scannedById: session.user.id,
+          locationId,
+          scanType: "entry_denied",
+          notes: `Guard status: ${guard.status}`,
+          ipAddress: h.get("x-forwarded-for") ?? null,
+          userAgent: h.get("user-agent") ?? null,
+        },
+      });
+      sitePulse = { kind: "entry_denied", when: created.scannedAt };
+    } else {
+      const last = await prisma.scanLog.findFirst({
+        where: {
+          guardId: guard.id,
+          locationId,
+          scanType: { in: [...SITE_IN_TYPES, ...SITE_OUT_TYPES] },
+        },
+        orderBy: { scannedAt: "desc" },
+      });
+
+      const next: "site_in" | "site_out" =
+        last && SITE_IN_TYPES.includes(last.scanType) ? "site_out" : "site_in";
+
+      const created = await prisma.scanLog.create({
+        data: {
+          guardId: guard.id,
+          scannedById: session.user.id,
+          locationId,
+          scanType: next,
+          ipAddress: h.get("x-forwarded-for") ?? null,
+          userAgent: h.get("user-agent") ?? null,
+        },
+      });
+      sitePulse = { kind: next, when: created.scannedAt };
+    }
   }
 
   // Armory operator → compute "open" issuances = armory_out for this guard
@@ -192,24 +211,53 @@ export default async function PublicProfile({ params }: { params: Params }) {
             className={`rounded-2xl px-4 py-3 text-sm border ${
               sitePulse.kind === "site_in"
                 ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-200"
-                : "bg-sky-500/10 border-sky-500/30 text-sky-200"
+                : sitePulse.kind === "site_out"
+                  ? "bg-sky-500/10 border-sky-500/30 text-sky-200"
+                  : "bg-red-500/15 border-red-500/50 text-red-200"
             }`}
           >
-            <div className="flex items-center gap-2">
-              <span className="text-base">
-                {sitePulse.kind === "site_in" ? "→" : "←"}
-              </span>
-              <strong>
-                {sitePulse.kind === "site_in" ? "ENTRY logged" : "EXIT logged"}
-              </strong>{" "}
-              <span className="text-zinc-300">at {locationName}</span>
-            </div>
-            <div className="text-xs text-zinc-400 mt-1">
-              {sitePulse.when.toLocaleString("en-GB", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-            </div>
+            {sitePulse.kind === "entry_denied" ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg leading-none font-bold">⛔</span>
+                  <strong className="uppercase tracking-wider">
+                    DENIED — Entry refused
+                  </strong>
+                </div>
+                <div className="text-xs text-zinc-200/90 mt-2 leading-relaxed">
+                  This guard's status is{" "}
+                  <strong className="text-red-300">INACTIVE</strong>. Do not
+                  allow them on site. Attempt has been logged.
+                </div>
+                <div className="text-[10px] text-zinc-400 mt-1">
+                  {sitePulse.when.toLocaleString("en-GB", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}{" "}
+                  · {locationName}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="text-base">
+                    {sitePulse.kind === "site_in" ? "→" : "←"}
+                  </span>
+                  <strong>
+                    {sitePulse.kind === "site_in"
+                      ? "ENTRY logged"
+                      : "EXIT logged"}
+                  </strong>{" "}
+                  <span className="text-zinc-300">at {locationName}</span>
+                </div>
+                <div className="text-xs text-zinc-400 mt-1">
+                  {sitePulse.when.toLocaleString("en-GB", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -254,6 +302,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
             guardId={guard.id}
             guardName={fullName}
             locationId={locationId}
+            guardInactive={guardInactive}
             permits={issuablePermits.map((p) => ({
               key: p.key,
               label: p.label,

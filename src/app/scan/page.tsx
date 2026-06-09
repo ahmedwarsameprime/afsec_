@@ -138,12 +138,16 @@ function scanLabel(type: string, weaponSerial: string | null): string {
       return "Entry";
     case "site_out":
       return "Exit";
+    case "entry_denied":
+      return "⛔ Entry denied";
     case "verification":
       return "Verification";
     case "armory_out":
       return weaponSerial ? `Weapon out — ${weaponSerial}` : "Weapon out";
     case "armory_in":
       return weaponSerial ? `Weapon in — ${weaponSerial}` : "Weapon in";
+    case "armory_denied":
+      return weaponSerial ? `⛔ Denied — ${weaponSerial}` : "⛔ Issuance denied";
     default:
       return type;
   }

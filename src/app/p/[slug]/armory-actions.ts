@@ -30,11 +30,33 @@ export async function logArmoryIssuance(input: {
   const guard = await prisma.guard.findUnique({
     where: { id: input.guardId },
     select: {
+      status: true,
       permit1WeaponNumber: true,
       permit2WeaponNumber: true,
     },
   });
   if (!guard) return false;
+
+  const h = await headers();
+
+  // Server-side enforcement of guard status — never issue to inactive guards
+  // even if client-side checks were bypassed.
+  if (guard.status !== "active") {
+    await prisma.scanLog.create({
+      data: {
+        guardId: input.guardId,
+        scannedById: ok.userId,
+        locationId: input.locationId,
+        scanType: "armory_denied",
+        weaponSerial: input.weaponSerial,
+        permitContext: input.permitContext,
+        notes: `Issuance denied: guard status is ${guard.status}`,
+        ipAddress: h.get("x-forwarded-for") ?? null,
+        userAgent: h.get("user-agent") ?? null,
+      },
+    });
+    return false;
+  }
 
   const expected =
     input.permitContext === "permit1"
@@ -44,7 +66,6 @@ export async function logArmoryIssuance(input: {
   if (!expected) return false;
   if (expected.toLowerCase() !== input.weaponSerial.toLowerCase()) return false;
 
-  const h = await headers();
   await prisma.scanLog.create({
     data: {
       guardId: input.guardId,

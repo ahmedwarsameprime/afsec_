@@ -30,16 +30,19 @@ export function ArmoryFlow({
   guardId,
   guardName,
   locationId,
+  guardInactive,
   permits,
   openIssuances,
 }: {
   guardId: string;
   guardName: string;
   locationId: string;
+  guardInactive: boolean;
   permits: Permit[];
   openIssuances: OpenIssuance[];
 }) {
   // Mode default: if any open issuance exists, default to "return".
+  // Inactive guards: returns still allowed, new issuance always denied.
   const [mode, setMode] = useState<"return" | "issue">(
     openIssuances.length > 0 ? "return" : "issue"
   );
@@ -60,8 +63,8 @@ export function ArmoryFlow({
         <h2 className="text-sm uppercase tracking-wider text-[#c9a56a] font-bold">
           Armory
         </h2>
-        {/* Mode toggle, only when both options are meaningful */}
-        {openIssuances.length > 0 && permits.length > 0 && (
+        {/* Mode toggle, only when both options are meaningful AND guard is active */}
+        {openIssuances.length > 0 && permits.length > 0 && !guardInactive && (
           <div className="inline-flex items-center rounded-md bg-black/40 p-0.5">
             <button
               type="button"
@@ -95,22 +98,55 @@ export function ArmoryFlow({
         )}
       </div>
 
+      {guardInactive && (
+        <div className="bg-red-500/15 border-b border-red-500/40 px-4 py-3 text-sm text-red-200">
+          <div className="flex items-start gap-2">
+            <span className="text-lg leading-none font-bold">⛔</span>
+            <div>
+              <div className="font-bold uppercase tracking-wider text-red-300">
+                DENIED — Issuance refused
+              </div>
+              <div className="text-xs mt-1 text-zinc-200/90 leading-relaxed">
+                This guard's status is{" "}
+                <strong className="text-red-300">INACTIVE</strong>. No new
+                weapons may be issued.
+                {openIssuances.length > 0
+                  ? " Returns are still accepted below — please collect any outstanding weapons."
+                  : ""}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {result && (
         <div className="px-4 pt-4">
           <ResultBanner result={result} />
         </div>
       )}
 
-      {mode === "return" && openIssuances.length > 0 ? (
-        <ReturnView
-          guardId={guardId}
-          guardName={guardName}
-          locationId={locationId}
-          openIssuances={openIssuances}
-          busy={busy}
-          startTransition={startTransition}
-          setResult={setResult}
-        />
+      {/* When guard is inactive: force return view if any open issuance,
+          otherwise show nothing actionable (banner above already explains). */}
+      {guardInactive && openIssuances.length === 0 ? (
+        <div className="p-4 text-sm text-zinc-400">
+          No outstanding weapons to return. Nothing to action.
+        </div>
+      ) : mode === "return" || guardInactive ? (
+        openIssuances.length > 0 ? (
+          <ReturnView
+            guardId={guardId}
+            guardName={guardName}
+            locationId={locationId}
+            openIssuances={openIssuances}
+            busy={busy}
+            startTransition={startTransition}
+            setResult={setResult}
+          />
+        ) : (
+          <div className="p-4 text-sm text-zinc-400">
+            No weapons currently issued to this guard.
+          </div>
+        )
       ) : permits.length > 0 ? (
         <IssueView
           guardId={guardId}

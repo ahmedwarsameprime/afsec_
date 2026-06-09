@@ -27,8 +27,10 @@ export default async function ScanLogsPage({
   const VALID_TYPES = [
     "site_in",
     "site_out",
+    "entry_denied",
     "armory_out",
     "armory_in",
+    "armory_denied",
     "verification", // legacy
   ];
   if (sp.type && VALID_TYPES.includes(sp.type)) {
@@ -36,10 +38,15 @@ export default async function ScanLogsPage({
   }
   // Convenience group filters
   if (sp.type === "site_any") {
-    where.scanType = { in: ["site_in", "site_out", "verification"] };
+    where.scanType = {
+      in: ["site_in", "site_out", "verification", "entry_denied"],
+    };
   }
   if (sp.type === "armory_any") {
-    where.scanType = { in: ["armory_out", "armory_in"] };
+    where.scanType = { in: ["armory_out", "armory_in", "armory_denied"] };
+  }
+  if (sp.type === "denied_any") {
+    where.scanType = { in: ["entry_denied", "armory_denied"] };
   }
   if (sp.from || sp.to) {
     const range: { gte?: Date; lte?: Date } = {};
@@ -129,16 +136,19 @@ export default async function ScanLogsPage({
             className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-[#c9a56a]"
           >
             <option value="">All types</option>
+            <option value="denied_any">⛔ Any denied attempt</option>
             <optgroup label="Site">
               <option value="site_any">Any site scan</option>
               <option value="site_in">Entry</option>
               <option value="site_out">Exit</option>
+              <option value="entry_denied">Entry denied</option>
               <option value="verification">Legacy verification</option>
             </optgroup>
             <optgroup label="Armory">
               <option value="armory_any">Any armory scan</option>
               <option value="armory_out">Weapon issued</option>
               <option value="armory_in">Weapon returned</option>
+              <option value="armory_denied">Issuance denied</option>
             </optgroup>
           </select>
         </FilterField>
@@ -309,9 +319,20 @@ function ScanTypeBadge({ type }: { type: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     site_in: { label: "Entry", cls: "bg-emerald-500/15 text-emerald-300" },
     site_out: { label: "Exit", cls: "bg-sky-500/15 text-sky-300" },
-    verification: { label: "Verify", cls: "bg-emerald-500/15 text-emerald-300" },
+    entry_denied: {
+      label: "⛔ Denied entry",
+      cls: "bg-red-500/20 text-red-300 border border-red-500/40",
+    },
+    verification: {
+      label: "Verify",
+      cls: "bg-emerald-500/15 text-emerald-300",
+    },
     armory_out: { label: "Weapon out", cls: "bg-red-500/15 text-red-300" },
     armory_in: { label: "Weapon in", cls: "bg-sky-500/15 text-sky-300" },
+    armory_denied: {
+      label: "⛔ Denied",
+      cls: "bg-red-500/20 text-red-300 border border-red-500/40",
+    },
   };
   const s = map[type] ?? { label: type, cls: "bg-zinc-500/15 text-zinc-300" };
   return (
