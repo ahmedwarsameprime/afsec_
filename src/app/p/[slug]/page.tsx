@@ -5,6 +5,7 @@ import { Logo } from "@/components/Logo";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { headers } from "next/headers";
+import Link from "next/link";
 import { ArmoryFlow } from "./ArmoryFlow";
 
 type Params = Promise<{ slug: string }>;
@@ -45,53 +46,84 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
   const guardInactive = guard.status !== "active";
 
-  let sitePulse:
-    | { kind: "site_in" | "site_out"; when: Date }
-    | { kind: "entry_denied"; when: Date }
-    | null = null;
+  type SitePulseKind = "site_in" | "site_out" | "entry_denied";
+  let sitePulse: { kind: SitePulseKind; when: Date; reused: boolean } | null = null;
 
-  // Site operator
+  // ── Site operator ─────────────────────────────────────────────────────
+  // Throttle: if THIS operator scanned THIS guard at THIS location in the
+  // last 30s, don't write a new log — just re-display the prior one.
+  // This catches back-button navigation and accidental page reloads, which
+  // otherwise create fake "Exit" entries right after an "Entry".
   if (role === "operator" && locationId && locationType === "site") {
-    const h = await headers();
-
-    if (guardInactive) {
-      // DENIED — log and stop. Do not advance the in/out toggle.
-      const created = await prisma.scanLog.create({
-        data: {
-          guardId: guard.id,
-          scannedById: session.user.id,
-          locationId,
-          scanType: "entry_denied",
-          notes: `Guard status: ${guard.status}`,
-          ipAddress: h.get("x-forwarded-for") ?? null,
-          userAgent: h.get("user-agent") ?? null,
+    const THROTTLE_MS = 30_000;
+    const cutoff = new Date(Date.now() - THROTTLE_MS);
+    const recent = await prisma.scanLog.findFirst({
+      where: {
+        guardId: guard.id,
+        locationId,
+        scannedById: session.user.id,
+        scannedAt: { gte: cutoff },
+        scanType: {
+          in: ["site_in", "site_out", "entry_denied", "verification"],
         },
-      });
-      sitePulse = { kind: "entry_denied", when: created.scannedAt };
+      },
+      orderBy: { scannedAt: "desc" },
+    });
+
+    if (recent) {
+      sitePulse = {
+        kind: (recent.scanType === "verification"
+          ? "site_in"
+          : (recent.scanType as SitePulseKind)),
+        when: recent.scannedAt,
+        reused: true,
+      };
     } else {
-      const last = await prisma.scanLog.findFirst({
-        where: {
-          guardId: guard.id,
-          locationId,
-          scanType: { in: [...SITE_IN_TYPES, ...SITE_OUT_TYPES] },
-        },
-        orderBy: { scannedAt: "desc" },
-      });
+      const h = await headers();
+      if (guardInactive) {
+        const created = await prisma.scanLog.create({
+          data: {
+            guardId: guard.id,
+            scannedById: session.user.id,
+            locationId,
+            scanType: "entry_denied",
+            notes: `Guard status: ${guard.status}`,
+            ipAddress: h.get("x-forwarded-for") ?? null,
+            userAgent: h.get("user-agent") ?? null,
+          },
+        });
+        sitePulse = {
+          kind: "entry_denied",
+          when: created.scannedAt,
+          reused: false,
+        };
+      } else {
+        const last = await prisma.scanLog.findFirst({
+          where: {
+            guardId: guard.id,
+            locationId,
+            scanType: { in: [...SITE_IN_TYPES, ...SITE_OUT_TYPES] },
+          },
+          orderBy: { scannedAt: "desc" },
+        });
 
-      const next: "site_in" | "site_out" =
-        last && SITE_IN_TYPES.includes(last.scanType) ? "site_out" : "site_in";
+        const next: "site_in" | "site_out" =
+          last && SITE_IN_TYPES.includes(last.scanType)
+            ? "site_out"
+            : "site_in";
 
-      const created = await prisma.scanLog.create({
-        data: {
-          guardId: guard.id,
-          scannedById: session.user.id,
-          locationId,
-          scanType: next,
-          ipAddress: h.get("x-forwarded-for") ?? null,
-          userAgent: h.get("user-agent") ?? null,
-        },
-      });
-      sitePulse = { kind: next, when: created.scannedAt };
+        const created = await prisma.scanLog.create({
+          data: {
+            guardId: guard.id,
+            scannedById: session.user.id,
+            locationId,
+            scanType: next,
+            ipAddress: h.get("x-forwarded-for") ?? null,
+            userAgent: h.get("user-agent") ?? null,
+          },
+        });
+        sitePulse = { kind: next, when: created.scannedAt, reused: false };
+      }
     }
   }
 
@@ -255,10 +287,20 @@ export default async function PublicProfile({ params }: { params: Params }) {
                     dateStyle: "medium",
                     timeStyle: "short",
                   })}
+                  {sitePulse.reused && " · (already recorded, not re-logged)"}
                 </div>
               </>
             )}
           </div>
+        )}
+
+        {role === "operator" && (
+          <Link
+            href="/scan"
+            className="block w-full text-center bg-[#c9a56a] text-black font-semibold px-4 py-3 rounded-md hover:bg-[#e0c490] transition"
+          >
+            ✓ Done · Scan Next
+          </Link>
         )}
 
         {/* Header card */}
@@ -452,6 +494,15 @@ export default async function PublicProfile({ params }: { params: Params }) {
             </ul>
           )}
         </Section>
+
+        {role === "operator" && (
+          <Link
+            href="/scan"
+            className="block w-full text-center bg-[#c9a56a] text-black font-semibold px-4 py-3 rounded-md hover:bg-[#e0c490] transition"
+          >
+            ✓ Done · Scan Next
+          </Link>
+        )}
 
         <div className="text-center text-xs text-zinc-600 pt-4 pb-8">
           <div>
