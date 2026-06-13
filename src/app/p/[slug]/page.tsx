@@ -303,7 +303,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
           </div>
         )}
 
-        {role === "operator" && (
+        {(role === "operator" || role === "manager") && (
           <Link
             href="/scan"
             className="block w-full text-center bg-[#c9a56a] text-black font-semibold px-4 py-3 rounded-md hover:bg-[#e0c490] transition"
@@ -510,7 +510,7 @@ export default async function PublicProfile({ params }: { params: Params }) {
           )}
         </Section>
 
-        {role === "operator" && (
+        {(role === "operator" || role === "manager") && (
           <Link
             href="/scan"
             className="block w-full text-center bg-[#c9a56a] text-black font-semibold px-4 py-3 rounded-md hover:bg-[#e0c490] transition"

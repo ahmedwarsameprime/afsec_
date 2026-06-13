@@ -58,7 +58,9 @@ export function Sidebar({ user }: { user: User }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  const isAdmin = (user.role ?? "admin") === "admin";
+  const role = user.role ?? "admin";
+  const isAdmin = role === "admin";
+  const isManager = role === "manager";
   const nav = NAV.filter((item) => isAdmin || !item.adminOnly);
 
   function isActive(href: string) {
@@ -118,11 +120,20 @@ export function Sidebar({ user }: { user: User }) {
 
           <div className="mt-6">
             <div className="text-[10px] uppercase tracking-wider text-zinc-600 px-2 pb-2">Quick Actions</div>
-            <Link href="/admin/new" onClick={() => setOpen(false)}
-              className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-zinc-300 hover:bg-white/5 hover:text-white">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
-              New Guard
-            </Link>
+            {isAdmin && (
+              <Link href="/admin/new" onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-zinc-300 hover:bg-white/5 hover:text-white">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                New Guard
+              </Link>
+            )}
+            {isManager && (
+              <Link href="/scan" onClick={() => setOpen(false)}
+                className="flex items-center gap-3 px-3 py-2 rounded-md text-sm text-zinc-300 hover:bg-white/5 hover:text-white">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                Scan ID Card
+              </Link>
+            )}
           </div>
         </nav>
 

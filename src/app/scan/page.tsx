@@ -10,19 +10,26 @@ export default async function ScanLandingPage() {
   const session = await auth();
   if (!session?.user) redirect("/admin/login?callbackUrl=/scan");
 
-  // Admins don't belong here.
-  if (session.user.role !== "operator") {
+  const role = session.user.role ?? "admin";
+  // Operators and managers can scan. Admins use the CRM.
+  if (role === "admin") {
     redirect("/admin");
   }
+  const isManager = role === "manager";
 
-  const recent = await prisma.scanLog.findMany({
-    where: { scannedById: session.user.id },
-    orderBy: { scannedAt: "desc" },
-    take: 10,
-    include: {
-      guard: { select: { firstName: true, lastName: true, employeeId: true } },
-    },
-  });
+  // Only operators generate / have scan logs.
+  const recent = isManager
+    ? []
+    : await prisma.scanLog.findMany({
+        where: { scannedById: session.user.id },
+        orderBy: { scannedAt: "desc" },
+        take: 10,
+        include: {
+          guard: {
+            select: { firstName: true, lastName: true, employeeId: true },
+          },
+        },
+      });
 
   const locType = session.user.locationType;
 
@@ -31,20 +38,27 @@ export default async function ScanLandingPage() {
       <header className="border-b border-white/10 bg-black/40 backdrop-blur sticky top-0 z-10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <Logo size={28} />
-          <form
-            action={async () => {
-              "use server";
-              await signOut({ redirectTo: "/admin/login" });
-            }}
-          >
-            <button
-              type="submit"
-              aria-label="Sign out"
-              className="text-xs text-zinc-400 hover:text-white"
+          <div className="flex items-center gap-3">
+            {isManager && (
+              <a href="/admin" className="text-xs text-[#c9a56a] hover:text-[#e0c490]">
+                CRM →
+              </a>
+            )}
+            <form
+              action={async () => {
+                "use server";
+                await signOut({ redirectTo: "/admin/login" });
+              }}
             >
-              Sign out
-            </button>
-          </form>
+              <button
+                type="submit"
+                aria-label="Sign out"
+                className="text-xs text-zinc-400 hover:text-white"
+              >
+                Sign out
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
@@ -56,7 +70,16 @@ export default async function ScanLandingPage() {
           <div className="text-lg font-semibold">
             {session.user.name ?? session.user.email}
           </div>
-          {session.user.locationName ? (
+          {isManager ? (
+            <div className="text-sm mt-1">
+              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/30">
+                Manager
+              </span>
+              <span className="text-zinc-500 ml-2">
+                View-only access — scans are not logged.
+              </span>
+            </div>
+          ) : session.user.locationName ? (
             <div className="text-sm mt-1">
               <span className="text-zinc-500">Station:</span>{" "}
               <span className="text-[#c9a56a]">
@@ -77,52 +100,56 @@ export default async function ScanLandingPage() {
         <div>
           <QRScanner />
           <p className="text-xs text-zinc-500 mt-3 text-center">
-            {locType === "armory"
-              ? "You'll be prompted to confirm the weapon serial before issuance is recorded."
-              : "Your scan is logged automatically at your location."}
+            {isManager
+              ? "Opens the guard's full profile and documents. Nothing is logged."
+              : locType === "armory"
+                ? "You'll be prompted to confirm the weapon serial before issuance is recorded."
+                : "Your scan is logged automatically at your location."}
           </p>
         </div>
 
-        <section className="bg-[#141414] border border-white/10 rounded-2xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-white/5">
-            <h3 className="text-xs uppercase tracking-wider text-[#c9a56a] font-semibold">
-              Your recent scans
-            </h3>
-          </div>
-          {recent.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-zinc-500">
-              No scans yet.
+        {!isManager && (
+          <section className="bg-[#141414] border border-white/10 rounded-2xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/5">
+              <h3 className="text-xs uppercase tracking-wider text-[#c9a56a] font-semibold">
+                Your recent scans
+              </h3>
             </div>
-          ) : (
-            <ul className="divide-y divide-white/5">
-              {recent.map((s) => (
-                <li key={s.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div>
-                      <div className="text-sm text-white">
-                        {s.guard.firstName} {s.guard.lastName}
+            {recent.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-zinc-500">
+                No scans yet.
+              </div>
+            ) : (
+              <ul className="divide-y divide-white/5">
+                {recent.map((s) => (
+                  <li key={s.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <div className="text-sm text-white">
+                          {s.guard.firstName} {s.guard.lastName}
+                        </div>
+                        <div className="text-xs text-zinc-500 font-mono">
+                          {s.guard.employeeId ?? "—"}
+                        </div>
                       </div>
-                      <div className="text-xs text-zinc-500 font-mono">
-                        {s.guard.employeeId ?? "—"}
+                      <div className="text-right">
+                        <div className="text-xs text-zinc-400">
+                          {s.scannedAt.toLocaleString("en-GB", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                          })}
+                        </div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                          {scanLabel(s.scanType, s.weaponSerial)}
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-xs text-zinc-400">
-                        {s.scannedAt.toLocaleString("en-GB", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </div>
-                      <div className="text-[10px] uppercase tracking-wider text-zinc-500">
-                        {scanLabel(s.scanType, s.weaponSerial)}
-                      </div>
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
 
         <div className="text-center text-xs text-zinc-600">
           Tip: prefer Chrome or Safari for the smoothest camera support.
