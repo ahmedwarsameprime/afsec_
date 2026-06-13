@@ -5,6 +5,7 @@ import { dateInputValue } from "@/lib/dates";
 import { saveUpload, deleteUpload } from "@/lib/storage";
 import { revalidatePath } from "next/cache";
 import { TrainingEditor } from "./TrainingEditor";
+import { DocumentChecklist } from "./DocumentChecklist";
 import { logAdminAction, diffFields } from "@/lib/audit";
 import { proxiedFileUrl } from "@/lib/file-url";
 
@@ -39,7 +40,10 @@ export default async function EditGuardPage({ params }: { params: Params }) {
   const { id } = await params;
   const guard = await prisma.guard.findUnique({
     where: { id },
-    include: { trainings: { orderBy: { createdAt: "desc" } } },
+    include: {
+      trainings: { orderBy: { createdAt: "desc" } },
+      documents: true,
+    },
   });
   if (!guard || guard.deletedAt) notFound();
 
@@ -361,6 +365,9 @@ export default async function EditGuardPage({ params }: { params: Params }) {
           </button>
         </div>
       </form>
+
+      {/* File inspection checklist */}
+      <DocumentChecklist guardId={guard.id} documents={guard.documents} />
 
       {/* Training history (separate form) */}
       <TrainingEditor guardId={guard.id} trainings={guard.trainings} />

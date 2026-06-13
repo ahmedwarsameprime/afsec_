@@ -14,7 +14,9 @@ export default async function OperatorEditPage({ params }: { params: Params }) {
     where: { id },
     include: { location: true, _count: { select: { scanLogs: true } } },
   });
-  if (!user || user.role !== "operator") notFound();
+  // This page edits operators and managers (not admins).
+  if (!user || (user.role !== "operator" && user.role !== "manager")) notFound();
+  const isManager = user.role === "manager";
 
   const locations = await prisma.location.findMany({
     orderBy: [{ type: "asc" }, { name: "asc" }],
@@ -97,20 +99,27 @@ export default async function OperatorEditPage({ params }: { params: Params }) {
         <Field label="Display Name">
           <Input name="name" defaultValue={user.name ?? ""} />
         </Field>
-        <Field label="Assigned Location">
-          <select
-            name="locationId"
-            defaultValue={user.locationId ?? ""}
-            className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#c9a56a]"
-          >
-            <option value="">— None —</option>
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name} ({l.type})
-              </option>
-            ))}
-          </select>
-        </Field>
+        {isManager ? (
+          <div className="text-xs text-zinc-500">
+            Managers aren't tied to a location. They can review full documents
+            for any guard.
+          </div>
+        ) : (
+          <Field label="Assigned Location">
+            <select
+              name="locationId"
+              defaultValue={user.locationId ?? ""}
+              className="w-full bg-[#0a0a0a] border border-white/10 rounded-md px-3 py-2 text-white focus:outline-none focus:border-[#c9a56a]"
+            >
+              <option value="">— None —</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name} ({l.type})
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Reset Password">
           <Input
             type="text"
@@ -134,9 +143,11 @@ export default async function OperatorEditPage({ params }: { params: Params }) {
         </div>
       </form>
 
-      <div className="text-xs text-zinc-500">
-        {user._count.scanLogs} scan{user._count.scanLogs === 1 ? "" : "s"} recorded under this operator.
-      </div>
+      {!isManager && (
+        <div className="text-xs text-zinc-500">
+          {user._count.scanLogs} scan{user._count.scanLogs === 1 ? "" : "s"} recorded under this operator.
+        </div>
+      )}
 
       <section className="bg-[#141414] border border-white/10 rounded-2xl p-5 space-y-4">
         <h2 className="text-xs uppercase tracking-wider text-[#c9a56a] font-semibold">Security</h2>

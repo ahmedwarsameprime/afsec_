@@ -164,12 +164,32 @@ model Guard {
   // Soft delete — restorable from /admin/trash for 30 days.
   deletedAt DateTime?
 
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
   trainings Training[]
   scanLogs  ScanLog[]
+  documents GuardDocument[]
 
   @@index([deletedAt])
+}
+
+// File inspection checklist — one row per required document type.
+// docType is one of the keys in src/lib/documents.ts.
+model GuardDocument {
+  id      String @id @default(cuid())
+  guardId String
+  guard   Guard  @relation(fields: [guardId], references: [id], onDelete: Cascade)
+
+  docType     String // e.g. "arming_approval", "passport_copy"
+  documentUrl String?
+  issueDate   DateTime?
+  expiryDate  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([guardId, docType])
+  @@index([guardId])
 }
 
 model Training {

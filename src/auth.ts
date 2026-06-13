@@ -18,7 +18,7 @@ declare module "next-auth" {
   interface Session {
     user: {
       id: string;
-      role: "admin" | "operator";
+      role: "admin" | "manager" | "operator";
       mustChangePassword: boolean;
       locationId: string | null;
       locationName?: string | null;
@@ -27,7 +27,7 @@ declare module "next-auth" {
   }
 
   interface User {
-    role?: "admin" | "operator";
+    role?: "admin" | "manager" | "operator";
     mustChangePassword?: boolean;
     locationId?: string | null;
     locationName?: string | null;
@@ -78,7 +78,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           id: user.id,
           email: user.email,
           name: user.name ?? undefined,
-          role: (user.role as "admin" | "operator") ?? "admin",
+          role: (user.role as "admin" | "manager" | "operator") ?? "admin",
           mustChangePassword: user.mustChangePassword ?? false,
           locationId: user.locationId,
           locationName: user.location?.name ?? null,
@@ -91,7 +91,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     async jwt({ token, user, trigger }) {
       if (user) {
         const u = user as {
-          role?: "admin" | "operator";
+          role?: "admin" | "manager" | "operator";
           mustChangePassword?: boolean;
           locationId?: string | null;
           locationName?: string | null;
@@ -112,7 +112,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (session.user) {
         const t = token as {
           sub?: string;
-          role?: "admin" | "operator";
+          role?: "admin" | "manager" | "operator";
           mustChangePassword?: boolean;
           locationId?: string | null;
           locationName?: string | null;
@@ -147,7 +147,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               // them as signed out.
               return { ...session, user: undefined } as unknown as typeof session;
             }
-            session.user.role = (fresh.role as "admin" | "operator") ?? session.user.role;
+            session.user.role = (fresh.role as "admin" | "manager" | "operator") ?? session.user.role;
             session.user.mustChangePassword = fresh.mustChangePassword;
             session.user.locationId = fresh.locationId;
             session.user.locationName = fresh.location?.name ?? null;

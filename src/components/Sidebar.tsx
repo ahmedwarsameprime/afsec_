@@ -8,10 +8,11 @@ import { Logo } from "@/components/Logo";
 type User = {
   name?: string | null;
   email?: string | null;
-  role?: "admin" | "operator";
+  role?: "admin" | "manager" | "operator";
 };
 
-const NAV: Array<{ label: string; href: string; icon: React.ReactNode }> = [
+// adminOnly items are hidden from managers.
+const NAV: Array<{ label: string; href: string; icon: React.ReactNode; adminOnly?: boolean }> = [
   {
     label: "Guards",
     href: "/admin",
@@ -20,11 +21,13 @@ const NAV: Array<{ label: string; href: string; icon: React.ReactNode }> = [
   {
     label: "Locations",
     href: "/admin/locations",
+    adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
   },
   {
-    label: "Operators",
+    label: "Accounts",
     href: "/admin/operators",
+    adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
   },
   {
@@ -35,11 +38,13 @@ const NAV: Array<{ label: string; href: string; icon: React.ReactNode }> = [
   {
     label: "Admin Audit",
     href: "/admin/audit",
+    adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>,
   },
   {
     label: "Trash",
     href: "/admin/trash",
+    adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>,
   },
   {
@@ -52,6 +57,9 @@ const NAV: Array<{ label: string; href: string; icon: React.ReactNode }> = [
 export function Sidebar({ user }: { user: User }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+
+  const isAdmin = (user.role ?? "admin") === "admin";
+  const nav = NAV.filter((item) => isAdmin || !item.adminOnly);
 
   function isActive(href: string) {
     if (href === "/admin") return pathname === "/admin";
@@ -90,7 +98,7 @@ export function Sidebar({ user }: { user: User }) {
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <div className="text-[10px] uppercase tracking-wider text-zinc-600 px-2 pb-2">CRM Console</div>
           <ul className="space-y-1">
-            {NAV.map((item) => {
+            {nav.map((item) => {
               const active = isActive(item.href);
               return (
                 <li key={item.href}>

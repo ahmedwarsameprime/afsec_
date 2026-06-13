@@ -17,6 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const role = session.user.role ?? "admin";
 
   // Operators don't belong in /admin — bounce to scan landing.
+  // Admins and managers may enter (managers get a reduced sidebar).
   if (role === "operator") {
     redirect("/scan");
   }

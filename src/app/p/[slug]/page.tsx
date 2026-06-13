@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { formatDate, isExpired } from "@/lib/dates";
+import { formatDate, isExpired, expiryStatus } from "@/lib/dates";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Logo } from "@/components/Logo";
 import { notFound, redirect } from "next/navigation";
@@ -8,6 +8,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { ArmoryFlow } from "./ArmoryFlow";
 import { proxiedFileUrl } from "@/lib/file-url";
+import { FILE_CHECKLIST } from "@/lib/documents";
 
 type Params = Promise<{ slug: string }>;
 
@@ -35,7 +36,10 @@ export default async function PublicProfile({ params }: { params: Params }) {
 
   const guard = await prisma.guard.findUnique({
     where: { slug },
-    include: { trainings: { orderBy: { issueDate: "desc" } } },
+    include: {
+      trainings: { orderBy: { issueDate: "desc" } },
+      documents: true,
+    },
   });
 
   if (!guard) notFound();
@@ -44,6 +48,10 @@ export default async function PublicProfile({ params }: { params: Params }) {
   const locationId = session.user.locationId;
   const locationType = session.user.locationType;
   const locationName = session.user.locationName;
+
+  // Only admins and managers may open the actual document files. Operators
+  // see the checklist status (uploaded / valid / expired) and dates only.
+  const canViewDocuments = role === "admin" || role === "manager";
 
   const guardInactive = guard.status !== "active";
 
@@ -441,6 +449,12 @@ export default async function PublicProfile({ params }: { params: Params }) {
           </div>
         </Section>
 
+        {/* File Inspection Checklist */}
+        <FileChecklistSection
+          documents={guard.documents}
+          canViewDocuments={canViewDocuments}
+        />
+
         {/* Training */}
         <Section title={`Training History (${guard.trainings.length})`}>
           {guard.trainings.length === 0 ? (
@@ -598,6 +612,75 @@ function PermitRow({
         </div>
       )}
     </div>
+  );
+}
+
+function FileChecklistSection({
+  documents,
+  canViewDocuments,
+}: {
+  documents: Array<{
+    docType: string;
+    documentUrl: string | null;
+    issueDate: Date | null;
+    expiryDate: Date | null;
+  }>;
+  canViewDocuments: boolean;
+}) {
+  const byType = new Map(documents.map((d) => [d.docType, d]));
+  const uploaded = documents.filter((d) => d.documentUrl).length;
+
+  return (
+    <Section title={`File Inspection Checklist (${uploaded}/${FILE_CHECKLIST.length})`}>
+      <ul className="divide-y divide-white/5">
+        {FILE_CHECKLIST.map((spec) => {
+          const rec = byType.get(spec.key) ?? null;
+          const hasFile = !!rec?.documentUrl;
+          const status = hasFile
+            ? rec?.expiryDate
+              ? expiryStatus(rec.expiryDate)
+              : "ok"
+            : "missing";
+          const badge =
+            status === "ok"
+              ? { cls: "bg-emerald-500/15 text-emerald-300", label: "Valid" }
+              : status === "soon"
+                ? { cls: "bg-amber-500/15 text-amber-300", label: "Expiring soon" }
+                : status === "expired"
+                  ? { cls: "bg-red-500/15 text-red-300", label: "Expired" }
+                  : { cls: "bg-zinc-500/15 text-zinc-400", label: "Missing" };
+          return (
+            <li key={spec.key} className="px-4 py-3">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm text-zinc-100">{spec.label}</div>
+                  {rec?.expiryDate && (
+                    <div className="text-xs text-zinc-500 mt-0.5">
+                      Expires {formatDate(rec.expiryDate)}
+                    </div>
+                  )}
+                </div>
+                <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded shrink-0 ${badge.cls}`}>
+                  {badge.label}
+                </span>
+              </div>
+              {/* Only admins/managers get the actual file. */}
+              {hasFile && canViewDocuments && (
+                <div className="mt-2">
+                  <DocLink url={rec!.documentUrl!} label="View document" />
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {!canViewDocuments && (
+        <div className="px-4 py-2 text-[11px] text-zinc-600 border-t border-white/5">
+          Document files are visible to management only. You can see validity
+          and expiry status.
+        </div>
+      )}
+    </Section>
   );
 }
 

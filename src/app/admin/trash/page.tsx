@@ -33,7 +33,10 @@ export default async function TrashPage() {
     "use server";
     const g = await prisma.guard.findUnique({
       where: { id },
-      include: { trainings: { select: { documentUrl: true } } },
+      include: {
+        trainings: { select: { documentUrl: true } },
+        documents: { select: { documentUrl: true } },
+      },
     });
     if (!g) return;
     await deleteUpload(g.photoUrl);
@@ -42,6 +45,7 @@ export default async function TrashPage() {
     await deleteUpload(g.visaDocumentUrl);
     await deleteUpload(g.medicalDocumentUrl);
     for (const t of g.trainings) await deleteUpload(t.documentUrl);
+    for (const d of g.documents) await deleteUpload(d.documentUrl);
     await prisma.guard.delete({ where: { id } });
     await logAdminAction({
       action: "guard.delete",
@@ -57,7 +61,10 @@ export default async function TrashPage() {
     const cutoff = new Date(Date.now() - RETENTION_MS);
     const expired = await prisma.guard.findMany({
       where: { deletedAt: { lt: cutoff } },
-      include: { trainings: { select: { documentUrl: true } } },
+      include: {
+        trainings: { select: { documentUrl: true } },
+        documents: { select: { documentUrl: true } },
+      },
     });
     for (const g of expired) {
       await deleteUpload(g.photoUrl);
@@ -66,6 +73,7 @@ export default async function TrashPage() {
       await deleteUpload(g.visaDocumentUrl);
       await deleteUpload(g.medicalDocumentUrl);
       for (const t of g.trainings) await deleteUpload(t.documentUrl);
+    for (const d of g.documents) await deleteUpload(d.documentUrl);
       await prisma.guard.delete({ where: { id: g.id } });
     }
     if (expired.length > 0) {
